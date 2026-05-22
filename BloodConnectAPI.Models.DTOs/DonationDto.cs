@@ -25,6 +25,8 @@ public class DonationDto
     
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+
+    public IEnumerable<DonationLabReportDto> LabReports { get; set; } = new List<DonationLabReportDto>();
 }
 
 /// <summary>

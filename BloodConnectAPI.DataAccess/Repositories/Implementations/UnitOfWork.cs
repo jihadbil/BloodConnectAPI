@@ -23,6 +23,7 @@ public class UnitOfWork : IUnitOfWork
     private IBloodDisbursementRepository? _bloodDisbursements;
     private IDonorRequestResponseRepository? _donorResponseRepository;
     private IDonorMedicalDocumentRepository? _donorMedicalDocuments;
+    private IDonationLabReportRepository? _donationLabReports;
     private INotificationRepository? _notifications;
 
     public UnitOfWork(ApplicationDbContext context)
@@ -80,6 +81,11 @@ public class UnitOfWork : IUnitOfWork
     public IDonorMedicalDocumentRepository DonorMedicalDocuments
     {
         get { return _donorMedicalDocuments ??= new DonorMedicalDocumentRepository(_context); }
+    }
+
+    public IDonationLabReportRepository DonationLabReports
+    {
+        get { return _donationLabReports ??= new DonationLabReportRepository(_context); }
     }
 
     public INotificationRepository Notifications

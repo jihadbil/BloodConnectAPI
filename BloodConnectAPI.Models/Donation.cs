@@ -66,6 +66,7 @@ public class Donation
         public Donor Donor { get; set; } = null!;
         public BloodType BloodType { get; set; } = null!;
         public ICollection<BloodDisbursement> BloodDisbursements { get; set; } = new List<BloodDisbursement>();
+        public ICollection<DonationLabReport> LabReports { get; set; } = new List<DonationLabReport>();
     }
 
 

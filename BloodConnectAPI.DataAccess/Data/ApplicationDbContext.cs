@@ -69,6 +69,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<DonorMedicalDocument> DonorMedicalDocuments { get; set; }
 
     /// <summary>
+    /// تحاليل عينات التبرع
+    /// </summary>
+    public DbSet<DonationLabReport> DonationLabReports { get; set; }
+
+    /// <summary>
     /// الإشعارات
     /// </summary>
     public DbSet<Notification> Notifications { get; set; }
@@ -90,6 +95,13 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         modelBuilder.Entity<DonorRequestResponse>().HasKey(e => e.ResponseID);
         modelBuilder.Entity<DonorMedicalDocument>().HasKey(e => e.DocumentID);
         modelBuilder.Entity<Notification>().HasKey(e => e.NotificationID);
+        modelBuilder.Entity<DonationLabReport>().HasKey(e => e.LabReportID);
+
+        // إعداد علاقة DonationLabReport مع Donation
+        modelBuilder.Entity<DonationLabReport>()
+            .HasOne(r => r.Donation)
+            .WithMany(d => d.LabReports)
+            .HasForeignKey(r => r.DonationID);
 
         // إعداد علاقة Notification مع ApplicationUser
         modelBuilder.Entity<Notification>()

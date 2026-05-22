@@ -101,6 +101,7 @@ builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IInventoryService,
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IBloodRequestService, BloodConnectAPI.Service.Implementations.BloodRequestService>();
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonorResponseService, BloodConnectAPI.Service.Implementations.DonorResponseService>();
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonorMedicalDocumentService, BloodConnectAPI.Service.Implementations.DonorMedicalDocumentService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonationLabReportService, BloodConnectAPI.Service.Implementations.DonationLabReportService>();
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IPatientService, BloodConnectAPI.Service.Implementations.PatientService>();
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IReportService, BloodConnectAPI.Service.Implementations.ReportService>();
 builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.INotificationService, BloodConnectAPI.Service.Implementations.NotificationService>();

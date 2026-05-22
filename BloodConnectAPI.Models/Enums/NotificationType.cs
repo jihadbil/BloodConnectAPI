@@ -47,5 +47,11 @@ public enum NotificationType
     /// إشعار عام
     /// </summary>
     [Description("إشعار عام")]
-    General = 7
+    General = 7,
+
+    /// <summary>
+    /// تقرير مختبري جديد
+    /// </summary>
+    [Description("تقرير مختبري جديد")]
+    NewLabReport = 8
 }

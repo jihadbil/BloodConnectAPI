@@ -58,7 +58,9 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.DonorName,
                 opt => opt.MapFrom(src => src.Donor != null ? src.Donor.FullName : string.Empty))
             .ForMember(dest => dest.BloodTypeName,
-                opt => opt.MapFrom(src => src.BloodType != null ? src.BloodType.TypeName : string.Empty));
+                opt => opt.MapFrom(src => src.BloodType != null ? src.BloodType.TypeName : string.Empty))
+            .ForMember(dest => dest.LabReports,
+                opt => opt.MapFrom(src => src.LabReports));
 
         CreateMap<CreateDonationDto, Donation>()
             .ForMember(dest => dest.DonationID,         opt => opt.Ignore())
@@ -133,6 +135,11 @@ public class MappingProfile : Profile
         // DonorMedicalDocument Mappings
         // ─────────────────────────────────────────
         CreateMap<DonorMedicalDocument, DonorMedicalDocumentDto>();
+
+        // ─────────────────────────────────────────
+        // DonationLabReport Mappings
+        // ─────────────────────────────────────────
+        CreateMap<DonationLabReport, DonationLabReportDto>();
 
         // ─────────────────────────────────────────
         // Notification Mappings

@@ -63,6 +63,11 @@ public interface IUnitOfWork : IDisposable
     IDonorMedicalDocumentRepository DonorMedicalDocuments { get; }
 
     /// <summary>
+    /// Repository تحاليل عينات التبرع
+    /// </summary>
+    IDonationLabReportRepository DonationLabReports { get; }
+
+    /// <summary>
     /// Repository الإشعارات
     /// </summary>
     INotificationRepository Notifications { get; }
