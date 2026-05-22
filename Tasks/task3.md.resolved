@@ -1,0 +1,415 @@
+# مهام تحديث طبقة المتحكمات — BloodConnectAPI
+
+> **المرجع:** `implementation_plan.md`  
+> **الحالة:** ⏳ لم يبدأ التنفيذ بعد
+
+---
+
+## المرحلة 0 — `BloodConnectAPI.csproj` 🔴
+
+- [x] فتح `BloodConnectAPI/BloodConnectAPI.csproj`
+- [x] إضافة مرجع `BloodConnectAPI.Services.csproj`:
+  ```xml
+  <ProjectReference Include="..\BloodConnectAPI.Services\BloodConnectAPI.Services.csproj" />
+  ```
+- [x] إضافة مرجع `BloodConnectAPI.Models.DTOs.csproj`:
+  ```xml
+  <ProjectReference Include="..\BloodConnectAPI.Models.DTOs\BloodConnectAPI.Models.DTOs.csproj" />
+  ```
+- [x] تشغيل `dotnet build BloodConnectAPI/BloodConnectAPI.csproj` والتأكد من الاستعادة
+
+---
+
+## المرحلة 1 — `AuthController.cs` 🔴
+
+### 1.1 تحديث Usings
+- [x] حذف `using BloodConnectAPI.Models.Requests;`
+- [x] حذف `using BloodConnectAPI.Models.Responses;`
+- [x] إضافة `using BloodConnectAPI.Models.DTOs;`
+- [x] إضافة `using System.Security.Claims;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+
+### 1.2 تحديث `POST /auth/login`
+- [x] تغيير `[ProducesResponseType(typeof(ServiceResponse<LoginResponse>), 200)]` → `ServiceResponse<LoginResponseDto>`
+- [x] تغيير parameter من `LoginRequest request` إلى `LoginDto request`
+- [x] تغيير الاستدعاء من `LoginAsync(request.Username, request.Password)` → `LoginAsync(request)`
+
+### 1.3 تحديث `POST /auth/register`
+- [x] تغيير `[ProducesResponseType]` → `ServiceResponse<ApplicationUserDto>` + status 201
+- [x] تغيير parameter من `RegisterRequest request` إلى `RegisterDto request`
+- [x] **حذف** كتلة إنشاء `BloodConnectAPI.Models.User` كاملاً
+- [x] تغيير الاستدعاء من `RegisterAsync(user, request.Password, request.RoleId)` → `RegisterAsync(request)`
+
+### 1.4 تحديث `POST /auth/change-password`
+- [x] إضافة `[Authorize]` على الـ action
+- [x] **حذف** `UserId` من الـ request body (يُستخرج من JWT)
+- [x] إضافة استخراج userId: `var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;`
+- [x] تحديث الاستدعاء: `ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword)`
+- [x] إنشاء DTO بسيط `ChangePasswordRequest` بحقلين فقط إن لم يكن موجوداً:
+  ```csharp
+  public class ChangePasswordRequest
+  {
+      public string CurrentPassword { get; set; } = string.Empty;
+      public string NewPassword { get; set; } = string.Empty;
+  }
+  ```
+
+---
+
+## المرحلة 2 — `UsersController.cs` 🔴
+
+### 2.1 تحديث Usings
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+- [x] التأكد من وجود `using BloodConnectAPI.Models.DTOs;`
+
+### 2.2 تحديث `GET /users` — GetAll
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] تغيير `ProducesResponseType` → `ServiceResponse<PagedResult<ApplicationUserDto>>`
+
+### 2.3 تحديث `GET /users/{id}` — GetById
+- [x] تغيير `GetById(int id)` → `GetById(string id)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] تغيير `ProducesResponseType` → `ServiceResponse<ApplicationUserDto>`
+
+### 2.4 استبدال `GET /users/{id}/roles` — GetWithRoles بـ GetUserRoles
+- [x] **حذف** Action `GetWithRoles` كاملاً (`GetWithRolesAsync` محذوفة من IUserService)
+- [x] **حذف** Action `GetUserRoles` القديم (int id)
+- [x] إضافة action جديد:
+  ```csharp
+  [HttpGet("{id}/roles")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<IEnumerable<string>>), 200)]
+  public async Task<IActionResult> GetUserRoles(string id)
+  {
+      var response = await _userService.GetUserRolesAsync(id);
+      return Ok(response);
+  }
+  ```
+
+### 2.5 تحديث `PUT /users/{id}` — Update
+- [x] تغيير `Update(int id, [FromBody] UpdateUserDto user)` → `Update(string id, [FromBody] UpdateApplicationUserDto dto)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] تغيير الاستدعاء: `UpdateAsync(id, dto)`
+
+### 2.6 تحديث `DELETE /users/{id}` — Delete
+- [x] تغيير `Delete(int id)` → `Delete(string id)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+
+### 2.7 تحديث `PATCH /users/{id}/toggle-active`
+- [x] تغيير `ToggleActive(int id)` → `ToggleActive(string id)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+
+### 2.8 إعادة بناء `POST /users/{userId}/assign-role`
+- [x] **تغيير Route** من `{userId}/assign-role/{roleId}` → `{userId}/assign-role`
+- [x] تغيير parameters من `(int userId, int roleId)` → `(string userId, [FromBody] AssignRoleDto dto)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] تغيير الاستدعاء: `AssignRoleAsync(userId, dto.RoleName)`
+
+### 2.9 إعادة بناء `DELETE /users/{userId}/roles/{roleId}`
+- [x] **تغيير Route** من `{userId}/roles/{roleId}` → `{userId}/roles/{roleName}`
+- [x] تغيير parameters من `(int userId, int roleId)` → `(string userId, string roleName)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] تغيير الاستدعاء: `RemoveRoleAsync(userId, roleName)`
+
+### 2.10 تحديث `GET /users/{id}/with-donor`
+- [x] تغيير `GetUserWithDonor(int id)` → `GetUserWithDonor(string id)`
+- [x] تغيير `ProducesResponseType` → `ServiceResponse<ApplicationUserDto>`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+
+---
+
+## المرحلة 3 — `DonorsController.cs` 🟡
+
+### 3.1 تحديث Usings
+- [x] إضافة `using BloodConnectAPI.Models.Enums;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+- [x] إضافة `using System.Security.Claims;`
+
+### 3.2 تحديث `POST /donors/{donorId}/link-user/{userId}`
+- [x] تغيير `LinkDonorToUser(int donorId, int userId)` → `(int donorId, string userId)`
+- [x] إضافة `[Authorize(Roles = "Admin")]`
+- [x] (الاستدعاء يبقى كما هو — الـ Service جاهز لاستقبال string)
+
+### 3.3 إضافة `POST /donors/{id}/approve` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpPost("{id}/approve")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<DonorDto>), 200)]
+  [ProducesResponseType(typeof(ServiceResponse<object>), 400)]
+  public async Task<IActionResult> ApproveDonor(int id, [FromBody] ApproveDonorDto dto)
+  {
+      if (!ModelState.IsValid) return BadRequest(ModelState);
+      var reviewerId = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+      var response = await _donorService.ApproveDonorAsync(id, dto, reviewerId);
+      if (!response.Success) return BadRequest(response);
+      return Ok(response);
+  }
+  ```
+
+### 3.4 إضافة `GET /donors/by-status/{status}` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpGet("by-status/{status}")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<PagedResult<DonorDto>>), 200)]
+  public async Task<IActionResult> GetByApprovalStatus(
+      DonorApprovalStatus status, [FromQuery] PaginationParams pagination)
+  {
+      var response = await _donorService.GetByApprovalStatusAsync(status, pagination);
+      return Ok(response);
+  }
+  ```
+
+### 3.5 إضافة `GET /donors/{id}/medical-documents` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpGet("{id}/medical-documents")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<IEnumerable<DonorMedicalDocumentDto>>), 200)]
+  [ProducesResponseType(typeof(ServiceResponse<object>), 404)]
+  public async Task<IActionResult> GetMedicalDocuments(int id)
+  {
+      var response = await _donorService.GetMedicalDocumentsAsync(id);
+      if (!response.Success) return NotFound(response);
+      return Ok(response);
+  }
+  ```
+
+---
+
+## المرحلة 4 — `DonationsController.cs` 🟡
+
+### 4.1 تحديث Usings
+- [x] حذف `using BloodConnectAPI.Models.Requests;` (أو التحقق من أنها مطلوبة فقط لـ `UpdateTestResultModel`)
+- [x] إضافة `using BloodConnectAPI.Models.DTOs;`
+- [x] إضافة `using BloodConnectAPI.Models.Enums;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+- [x] إضافة `using System.Security.Claims;`
+
+### 4.2 إضافة `PUT /donations/{id}` — [NEW]
+- [x] إضافة Action للتحديث العام:
+  ```csharp
+  [HttpPut("{id}")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<DonationDto>), 200)]
+  [ProducesResponseType(typeof(ServiceResponse<object>), 400)]
+  public async Task<IActionResult> Update(int id, [FromBody] UpdateDonationDto dto)
+  {
+      if (!ModelState.IsValid) return BadRequest(ModelState);
+      var response = await _donationService.UpdateAsync(id, dto);
+      if (!response.Success) return BadRequest(response);
+      return Ok(response);
+  }
+  ```
+
+### 4.3 إضافة `POST /donations/{id}/lab-test` — [NEW]
+- [x] إضافة Action للفحص المختبري الكامل:
+  ```csharp
+  [HttpPost("{id}/lab-test")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<DonationDto>), 200)]
+  [ProducesResponseType(typeof(ServiceResponse<object>), 400)]
+  public async Task<IActionResult> LabTest(int id, [FromBody] LabTestDonationDto dto)
+  {
+      if (!ModelState.IsValid) return BadRequest(ModelState);
+      var testedBy = User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+      _logger.LogInformation("تسجيل نتيجة فحص التبرع: {DonationId}", id);
+      var response = await _donationService.LabTestDonationAsync(id, dto, testedBy);
+      if (!response.Success) return BadRequest(response);
+      return Ok(response);
+  }
+  ```
+
+### 4.4 تحديث ProducesResponseTypes العامة
+- [x] `GET /donations` → `ServiceResponse<PagedResult<DonationDto>>`
+- [x] `GET /donations/{id}` → `ServiceResponse<DonationDto>`
+- [x] `GET /donations/donor/{donorId}` → `ServiceResponse<IEnumerable<DonationDto>>`
+
+---
+
+## المرحلة 5 — `BloodRequestsController.cs` 🔴
+
+### 5.1 تحديث Usings — البداية
+- [x] **حذف** `using BloodConnectAPI.Models.Requests;`
+- [x] **حذف** `using BloodConnectAPI.Models.DTOs.Responses;`
+- [x] إضافة `using BloodConnectAPI.Models.DTOs;`
+- [x] إضافة `using BloodConnectAPI.Models.Enums;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+- [x] إضافة `using System.Security.Claims;`
+
+### 5.2 تحديث ProducesResponseTypes
+- [x] `GET /blood-requests` → `ServiceResponse<PagedResult<BloodRequestDto>>`
+- [x] `GET /blood-requests/{id}` و`/{id}/details` → `ServiceResponse<BloodRequestDto>`
+- [x] `GET /blood-requests/pending` و `/urgent` → `ServiceResponse<IEnumerable<BloodRequestDto>>`
+- [x] `POST /blood-requests` → `ServiceResponse<BloodRequestDto>`
+- [x] `PUT /blood-requests/{id}/status` → `ServiceResponse<BloodRequestDto>`
+
+### 5.3 إصلاح `POST /blood-requests/{id}/fulfill`
+- [x] **حذف** استخدام `model.DonationId` و`model.Quantity` مباشرة
+- [x] بناء `FulfillBloodRequestDto`:
+  ```csharp
+  var dto = new FulfillBloodRequestDto
+  {
+      DonationId = model.DonationId,
+      QuantityToFulfill = model.Quantity
+  };
+  ```
+- [x] استخراج userId من JWT:
+  ```csharp
+  var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "";
+  ```
+- [x] تحديث الاستدعاء: `FulfillRequestAsync(id, dto, userId)`
+
+### 5.4 إضافة Authorization
+- [x] إضافة `[Authorize]` على مستوى الـ Controller
+
+---
+
+## المرحلة 6 — `DonorResponsesController.cs` 🟢
+
+### 6.1 تحديث Usings
+- [x] **حذف** `using BloodConnectAPI.Models.DTOs.Responses;`
+- [x] التأكد من وجود `using BloodConnectAPI.Models.DTOs;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+
+### 6.2 إضافة Authorization
+- [x] إضافة `[Authorize]` على Actions المناسبة (`UpdateStatus`/`Cancel` للـ Admin)
+
+---
+
+## المرحلة 7 — `InventoryController.cs` 🟡
+
+### 7.1 تحديث Usings
+- [x] إضافة `using BloodConnectAPI.Models.Enums;`
+- [x] إضافة `using Microsoft.AspNetCore.Authorization;`
+
+### 7.2 إضافة `GET /inventory/expiring` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpGet("expiring")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<IEnumerable<BloodInventoryItemDto>>), 200)]
+  public async Task<IActionResult> GetExpiring([FromQuery] int daysThreshold = 7)
+  {
+      var response = await _inventoryService.GetExpiringItemsAsync(daysThreshold);
+      return Ok(response);
+  }
+  ```
+
+### 7.3 إضافة `POST /inventory/remove-expired` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpPost("remove-expired")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<int>), 200)]
+  public async Task<IActionResult> RemoveExpired()
+  {
+      _logger.LogInformation("تشغيل عملية إزالة وحدات الدم منتهية الصلاحية");
+      var response = await _inventoryService.RemoveExpiredUnitsAsync();
+      return Ok(response);
+  }
+  ```
+
+### 7.4 إضافة `PATCH /inventory/items/{id}/status` — [NEW]
+- [x] إضافة Action:
+  ```csharp
+  [HttpPatch("items/{id}/status")]
+  [Authorize(Roles = "Admin")]
+  [ProducesResponseType(typeof(ServiceResponse<BloodInventoryItemDto>), 200)]
+  [ProducesResponseType(typeof(ServiceResponse<object>), 400)]
+  public async Task<IActionResult> UpdateItemStatus(int id, [FromBody] BloodUnitStatus newStatus)
+  {
+      var response = await _inventoryService.UpdateItemStatusAsync(id, newStatus);
+      if (!response.Success) return BadRequest(response);
+      return Ok(response);
+  }
+  ```
+
+---
+
+## المرحلة 8 — `DonorMedicalDocumentsController.cs` 🟢 [NEW]
+
+- [x] إنشاء ملف `Controllers/DonorMedicalDocumentsController.cs`
+- [x] إضافة Usings المطلوبة:
+  ```csharp
+  using BloodConnectAPI.Models.DTOs;
+  using BloodConnectAPI.Service.Common;
+  using BloodConnectAPI.Service.Interfaces;
+  using Microsoft.AspNetCore.Authorization;
+  using Microsoft.AspNetCore.Hosting;
+  using Microsoft.AspNetCore.Mvc;
+  using System.Security.Claims;
+  ```
+- [x] تعريف الـ Controller مع Route:
+  ```csharp
+  [ApiController]
+  [Route("api/medical-documents")]
+  [Authorize]
+  [Produces("application/json")]
+  public class DonorMedicalDocumentsController : ControllerBase
+  ```
+- [x] حقن الـ Dependencies في Constructor:
+  ```csharp
+  private readonly IDonorMedicalDocumentService _documentService;
+  private readonly IWebHostEnvironment _env;
+  private readonly ILogger<DonorMedicalDocumentsController> _logger;
+  ```
+- [x] تنفيذ `POST /medical-documents` — UploadDocument:
+  - [x] `[Consumes("multipart/form-data")]`
+  - [x] `[FromForm] SubmitMedicalDocumentDto dto`
+  - [x] استخراج `uploadedBy` من Claims
+  - [x] استخراج `rootPath` من `_env.WebRootPath`
+  - [x] استدعاء `UploadDocumentAsync(dto, rootPath, uploadedBy)`
+  - [x] إرجاع `201 Created`
+- [x] تنفيذ `GET /medical-documents/donor/{donorId}` — GetByDonorId:
+  - [x] `[Authorize(Roles = "Admin")]`
+  - [x] استدعاء `GetByDonorIdAsync(donorId)`
+- [x] تنفيذ `GET /medical-documents/{id}` — GetById:
+  - [x] `[Authorize(Roles = "Admin")]`
+  - [x] استدعاء `GetByIdAsync(id)`
+  - [x] إرجاع `404` إذا فشل
+- [x] تنفيذ `PATCH /medical-documents/{id}/verify` — VerifyDocument:
+  - [x] `[Authorize(Roles = "Admin")]`
+  - [x] `[FromBody] VerifyMedicalDocumentDto dto`
+  - [x] استخراج `verifiedBy` من Claims
+  - [x] استدعاء `VerifyDocumentAsync(id, dto, verifiedBy)`
+- [x] تنفيذ `DELETE /medical-documents/{id}` — Delete:
+  - [x] `[Authorize(Roles = "Admin")]`
+  - [x] استخراج `rootPath` من `_env.WebRootPath`
+  - [x] استدعاء `DeleteAsync(id, rootPath)`
+
+---
+
+## المرحلة 9 — التحقق النهائي
+
+### 9.1 Build Check
+- [x] `dotnet build BloodConnectAPI/BloodConnectAPI.csproj`
+- [x] التأكد من 0 Errors
+
+### 9.2 فحص Program.cs
+- [x] التأكد من تسجيل جميع الخدمات في DI:
+  ```csharp
+  services.AddScoped<IAuthService, AuthService>();
+  services.AddScoped<IUserService, UserService>();
+  services.AddScoped<IDonorService, DonorService>();
+  services.AddScoped<IDonationService, DonationService>();
+  services.AddScoped<IInventoryService, InventoryService>();
+  services.AddScoped<IBloodRequestService, BloodRequestService>();
+  services.AddScoped<IDonorResponseService, DonorResponseService>();
+  services.AddScoped<IDonorMedicalDocumentService, DonorMedicalDocumentService>();
+  ```
+- [x] التأكد من تسجيل `AutoMapper`:
+  ```csharp
+  services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
+  ```
+- [x] التأكد من `UseAuthentication()` و`UseAuthorization()` في Pipeline
+
+### 9.3 فحص التكامل
+- [x] `AuthController` — `LoginAsync` يستقبل `LoginDto` ✓
+- [x] `UsersController` — كل Parameters من نوع `string` ✓
+- [x] `DonorsController` — `ApproveDonorAsync` يستقبل `reviewerUserId` من Claims ✓
+- [x] `DonationsController` — `LabTestDonationAsync` يستقبل `testedByUserId` من Claims ✓
+- [x] `BloodRequestsController` — لا يوجد `using DTOs.Responses` ✓
+- [x] `DonorResponsesController` — لا يوجد `using DTOs.Responses` ✓
+- [x] `DonorMedicalDocumentsController` — `UploadDocumentAsync` يستخدم `WebRootPath` ✓

@@ -1,0 +1,197 @@
+# ملف المهام — إصلاح BloodConnectAPI
+**المرجع:** implementation_plan.md | **تاريخ البدء:** 2026-05-18
+
+---
+
+## 📊 ملخص التقدم
+- إجمالي المهام: **32**
+- مكتملة: **32** | قيد التنفيذ: **0** | معلقة: **0**
+
+---
+
+## 🔴 المرحلة 1 — إصلاح `Program.cs`
+
+### 1.1 تنظيف الـ using statements
+- `[x]` حذف السطر `using Microsoft.AspNetCore.Authentication;` (السطر 9)
+- `[x]` حذف السطر `using Microsoft.Identity.Web;` (السطر 10)
+- `[x]` التحقق من بقاء هذه الـ usings الضرورية:
+  - `using Microsoft.AspNetCore.Authentication.JwtBearer;`
+  - `using Microsoft.IdentityModel.Tokens;`
+  - `using System.Text;`
+
+### 1.2 إضافة JWT Bearer Authentication
+- `[x]` إضافة كتلة `AddAuthentication().AddJwtBearer(...)` كاملة بعد السطر 20 (بعد `AddDefaultTokenProviders()`)
+- `[x]` التأكد من إعداد الخصائص الخمس داخل `TokenValidationParameters`:
+  - `[x]` `ValidateIssuer = true`
+  - `[x]` `ValidateAudience = true`
+  - `[x]` `ValidateLifetime = true`
+  - `[x]` `ValidateIssuerSigningKey = true`
+  - `[x]` `ClockSkew = TimeSpan.Zero`
+- `[x]` التأكد من قراءة `JwtSettings:Key` من `IConfiguration` مع استثناء صريح إذا كان فارغاً
+
+### 1.3 إضافة Static Files Middleware
+- `[x]` إضافة `app.UseStaticFiles();` في الـ pipeline قبل `app.UseCors(...)`
+- `[x]` التحقق من الترتيب الصحيح للـ Middleware:
+  ```
+  UseHttpsRedirection → UseStaticFiles → UseCors → UseAuthentication → UseAuthorization → MapControllers
+  ```
+
+### 1.4 التحقق من المرحلة 1
+- `[x]` تشغيل `dotnet build` والتأكد من 0 أخطاء
+- `[x]` اختبار `POST /api/Auth/login` → يجب أن يعيد Token
+- `[x]` اختبار `GET /api/Users` بدون Token → يجب أن يعيد **401**
+- `[x]` اختبار `GET /api/Users` مع Bearer Token → يجب أن يعيد **200**
+
+---
+
+## 🔴 المرحلة 2 — تنظيف الإعدادات والحزم
+
+### 2.1 تعديل `BloodConnectAPI.csproj`
+- `[x]` حذف `Microsoft.AspNetCore.Authentication.OpenIdConnect`
+- `[x]` حذف `Microsoft.Identity.Web`
+- `[x]` حذف `Microsoft.Identity.Web.DownstreamApi`
+- `[x]` حذف `Microsoft.Identity.Web.MicrosoftGraph`
+- `[x]` حذف `Microsoft.Identity.Web.UI`
+- `[x]` تشغيل `dotnet restore` للتحقق من نجاح حذف الحزم
+
+### 2.2 تعديل `BloodConnectAPI.Services.csproj`
+- `[x]` حذف `Microsoft.AspNetCore.Http.Features` (v5.0.17 — قديمة وغير ضرورية)
+- `[x]` حذف `Microsoft.Extensions.Logging.Abstractions` (مُضمّنة في الـ Framework)
+- `[x]` تشغيل `dotnet build` والتأكد من اختفاء تحذيرات `NU1510`
+
+### 2.3 تعديل `appsettings.json`
+- `[x]` تفريغ قيمة `JwtSettings:Key` (تحويلها إلى `""`)
+- `[x]` حذف مقطع `AzureAd` بالكامل (6 خصائص)
+- `[x]` حذف مقطع `MicrosoftGraph` بالكامل
+- `[x]` حذف مقطع `DownstreamApi` بالكامل
+- `[x]` مراجعة الملف النهائي والتأكد من صحة JSON
+
+### 2.4 تخزين JWT Key في User Secrets
+- `[x]` تشغيل الأمر في terminal داخل مجلد `BloodConnectAPI`:
+  ```bash
+  dotnet user-secrets set "JwtSettings:Key" "BloodConnect-Secret-Key-Min-32-Characters!"
+  ```
+- `[x]` التحقق بتشغيل: `dotnet user-secrets list`
+- `[x]` التأكد من أن التطبيق يقرأ المفتاح بشكل صحيح عند التشغيل
+
+---
+
+## 🟠 المرحلة 3 — إصلاح منطق الخدمات
+
+### 3.1 إصلاح `DonorResponseService.cs`
+- `[x]` فتح الملف: `BloodConnectAPI.Services/Implementations/DonorResponseService.cs`
+- `[x]` الانتقال إلى الدالة الخاصة `UpdateRequestStatusAfterDonationAsync` (السطر ~242)
+- `[x]` إضافة `await _unitOfWork.SaveChangesAsync();` **بعد** سطر `UpdateAsync(request)`:
+  ```csharp
+  await _unitOfWork.BloodRequests.UpdateAsync(request);
+  await _unitOfWork.SaveChangesAsync(); // ← إضافة هذا السطر
+  ```
+- `[x]` التحقق: تسجيل استجابة بحالة `Donated` والتأكد من تحديث حالة `BloodRequest` في قاعدة البيانات
+
+### 3.2 إصلاح `InventoryService.cs`
+- `[x]` فتح الملف: `BloodConnectAPI.Services/Implementations/InventoryService.cs`
+- `[x]` الانتقال إلى دالة `RemoveExpiredUnitsAsync` (السطر ~203)
+- `[x]` حذف سطري `UpdateAsync` الزائدين داخل الـ loop:
+  ```csharp
+  // احذف هذين السطرين:
+  item.Status = BloodUnitStatus.Expired;
+  await _unitOfWork.BloodInventoryItems.UpdateAsync(item);
+  ```
+- `[x]` إبقاء `DeleteAsync` و `UpdateQuantityAsync` فقط
+- `[x]` التحقق: استدعاء `POST /api/inventory/remove-expired` والتأكد من نجاح العملية
+
+### 3.3 إصلاح `DonorService.cs`
+- `[x]` فتح الملف: `BloodConnectAPI.Services/Implementations/DonorService.cs`
+- `[x]` التحقق من وجود `using BloodConnectAPI.Service.Common;` في أعلى الملف
+- `[x]` الانتقال إلى دالة `CreateAsync` (السطر ~65)
+- `[x]` استبدال منطق العمر القديم:
+  ```csharp
+  // احذف:
+  if (dto.DateOfBirth >= DateTime.UtcNow.AddYears(-18))
+      errors.Add("يجب أن يكون عمر المتبرع 18 سنة على الأقل");
+  
+  // أضف بدلاً منه:
+  var ageValidation = DonationBusinessRules.ValidateDonorAge(dto.DateOfBirth);
+  if (!ageValidation.IsValid)
+      errors.Add(ageValidation.ErrorMessage);
+  ```
+- `[x]` التحقق: إنشاء متبرع بعمر أقل من 18 → يجب أن يعيد رسالة خطأ واضحة
+- `[x]` التحقق: إنشاء متبرع بعمر أكبر من 65 → يجب أن يعيد رسالة خطأ واضحة
+
+---
+
+## 🟠 المرحلة 4 — إضافة Validation للـ DTOs
+
+### 4.1 تعديل `DonorDto.cs`
+- `[x]` إضافة `using System.ComponentModel.DataAnnotations;` في أعلى الملف
+- `[x]` إضافة للـ `CreateDonorDto`:
+  - `[x]` `[Required]` + `[StringLength(100)]` على `FullName`
+  - `[x]` `[Required]` + `[StringLength(20)]` على `NationalID`
+  - `[x]` `[Required]` + `[Phone]` على `Phone`
+  - `[x]` `[Range(1, int.MaxValue)]` على `BloodTypeID`
+  - `[x]` `[Required]` على `City`
+
+### 4.2 تعديل `PatientDto.cs`
+- `[x]` إضافة `using System.ComponentModel.DataAnnotations;`
+- `[x]` إضافة للـ `CreatePatientDto`:
+  - `[x]` `[Required]` + `[StringLength(100)]` على `FullName`
+  - `[x]` `[Required]` + `[StringLength(20)]` على `NationalID`
+  - `[x]` `[Required]` + `[Phone]` على `Phone`
+  - `[x]` `[Required]` على `City`
+  - `[x]` `[Range(1, int.MaxValue)]` على `BloodTypeID`
+
+### 4.3 تعديل `DonationDto.cs`
+- `[x]` إضافة `using System.ComponentModel.DataAnnotations;`
+- `[x]` إضافة للـ `CreateDonationDto`:
+  - `[x]` `[Range(1, int.MaxValue)]` على `DonorID`
+  - `[x]` `[Range(1, int.MaxValue)]` على `BloodTypeID`
+  - `[x]` `[Range(1, 5)]` على `Quantity` (متوافق مع `DonationBusinessRules`)
+
+### 4.4 تعديل `BloodRequestDto.cs`
+- `[x]` إضافة `using System.ComponentModel.DataAnnotations;`
+- `[x]` إضافة للـ `CreateBloodRequestDto`:
+  - `[x]` `[Range(1, int.MaxValue)]` على `PatientID`
+  - `[x]` `[Range(1, int.MaxValue)]` على `BloodTypeID`
+  - `[x]` `[Range(1, 100)]` على `QuantityNeeded`
+
+### 4.5 تعديل `UserDto.cs`
+- `[x]` إضافة `using System.ComponentModel.DataAnnotations;`
+- `[x]` إضافة للـ `RegisterDto`:
+  - `[x]` `[Required]` + `[StringLength(50, MinimumLength = 3)]` على `UserName`
+  - `[x]` `[Required]` + `[EmailAddress]` على `Email`
+  - `[x]` `[Required]` + `[MinLength(8)]` على `Password`
+  - `[x]` `[Required]` على `FullName`
+
+---
+
+## ✅ التحقق النهائي
+
+### بناء المشروع
+- `[x]` تشغيل `dotnet build BloodConnectAPI.slnx`
+- `[x]` التأكد من: **0 Errors**
+- `[x]` التأكد من: تحذيرات `NU1510` اختفت
+
+### اختبارات وظيفية
+- `[ ]` `POST /api/Auth/register` ببيانات صحيحة → **201 Created**
+- `[ ]` `POST /api/Auth/login` ببيانات صحيحة → **200 + JWT Token**
+- `[ ]` `POST /api/Auth/login` ببيانات خاطئة → **400**
+- `[ ]` `GET /api/Users` بدون Token → **401 Unauthorized**
+- `[ ]` `GET /api/Users` مع Token صحيح → **200 OK**
+- `[ ]` `POST /api/Donors` ببيانات فارغة → **400 + رسائل خطأ باللغة العربية**
+- `[ ]` `POST /api/Donors` ببيانات صحيحة → **201 Created**
+- `[ ]` `POST /api/medical-documents` برفع ملف → **201 + الملف محفوظ في wwwroot**
+- `[ ]` `GET /uploads/medical-documents/{filename}` → **200 + الملف**
+- `[ ]` `POST /api/Inventory/remove-expired` → **200** بدون أخطاء
+
+---
+
+## 📝 ملاحظات التنفيذ
+
+> [!NOTE]
+> تنفيذ المراحل بالترتيب مهم. المرحلة 2 (حذف حزم Azure) يجب أن تكون قبل المرحلة 1 (تعديل Program.cs) لتجنب أخطاء البناء.
+
+> [!WARNING]
+> بعد حذف حزم Azure، تأكد من تشغيل `dotnet restore` قبل البناء لتحديث ملفات الـ lock.
+
+> [!TIP]
+> يمكن تنفيذ المراحل 3 و 4 بشكل متوازٍ لأنها مستقلة عن بعضها.

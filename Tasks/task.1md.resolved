@@ -1,0 +1,209 @@
+# قائمة المهام التفصيلية — BloodConnectAPI Database Restructuring
+
+---
+
+## 🔵 المرحلة 1: الانتقال إلى ASP.NET Core Identity
+
+### 1.1 تثبيت الحزم
+- [x] تثبيت `Microsoft.AspNetCore.Identity.EntityFrameworkCore` في مشروع `BloodConnectAPI.DataAccess`
+- [x] تثبيت `Microsoft.AspNetCore.Authentication.JwtBearer` في مشروع `BloodConnectAPI`
+- [x] إزالة حزمة `Microsoft.Identity.Web` من مشروع `BloodConnectAPI` (Azure AD)
+- [x] تثبيت `System.IdentityModel.Tokens.Jwt` في مشروع `BloodConnectAPI`
+
+### 1.2 إنشاء ApplicationUser
+- [x] إنشاء ملف `BloodConnectAPI.Models/ApplicationUser.cs`
+  - يرث من `IdentityUser` (مفتاحه string GUID)
+  - إضافة خاصية `string FullName`
+  - إضافة خاصية `bool IsActive = true`
+  - إضافة خاصية `DateTime CreatedAt`
+  - إضافة خاصية `DateTime? UpdatedAt`
+  - إضافة navigation `Donor? Donor`
+
+### 1.3 تعديل ApplicationDbContext
+- [x] تعديل `BloodConnectAPI.DataAccess/Data/ApplicationDbContext.cs`
+  - تغيير الوراثة من `DbContext` إلى `IdentityDbContext<ApplicationUser>`
+  - إضافة `using Microsoft.AspNetCore.Identity.EntityFrameworkCore`
+  - حذف `DbSet<User> Users`
+  - حذف `DbSet<Role> Roles`
+  - حذف `DbSet<UserRole> UserRoles`
+  - إضافة `DbSet<DonorMedicalDocument> DonorMedicalDocuments`
+  - إضافة استدعاء `base.OnModelCreating(modelBuilder)` داخل `OnModelCreating`
+
+### 1.4 تعديل Donor.cs — ربطه بـ Identity
+- [x] تعديل `BloodConnectAPI.Models/Donor.cs`
+  - تغيير نوع `UserID` من `int?` إلى `string?` وإعادة تسميتها `UserId`
+  - تغيير navigation من `User? User` إلى `ApplicationUser? User`
+
+### 1.5 تعديل Program.cs
+- [x] تعديل `BloodConnectAPI/Program.cs`
+  - حذف: `AddMicrosoftIdentityWebApi(...)`
+  - حذف: `using Microsoft.Identity.Web`
+  - إضافة: `builder.Services.AddIdentity<ApplicationUser, IdentityRole>()`
+  - إضافة: `.AddEntityFrameworkStores<ApplicationDbContext>()`
+  - إضافة: `.AddDefaultTokenProviders()`
+  - إضافة: تكوين `JwtBearer` Authentication (Secret, Issuer, Audience)
+  - إضافة: `app.UseAuthentication()` قبل `app.UseAuthorization()`
+  - إضافة: استدعاء `DataSeeder.SeedAsync(...)` عند بدء التطبيق
+
+### 1.6 تعديل appsettings.json
+- [x] تعديل `BloodConnectAPI/appsettings.json`
+  - حذف قسم `AzureAd` بالكامل
+  - إضافة قسم `JwtSettings`:
+    ```json
+    "JwtSettings": {
+      "Secret": "BloodConnect-Secret-Key-Min-32-Characters!",
+      "Issuer": "BloodConnectAPI",
+      "Audience": "BloodConnectClients",
+      "ExpiryInDays": 7
+    }
+    ```
+
+---
+
+## 🟢 المرحلة 2: إضافة النماذج الجديدة
+
+### 2.1 Enum — حالة موافقة المتبرع
+- [x] إنشاء `BloodConnectAPI.Models/Enums/DonorApprovalStatus.cs`
+  - `PendingDocuments = 1` — في انتظار رفع التحاليل
+  - `PendingApproval = 2` — تم الرفع، في انتظار المراجعة
+  - `Approved = 3` — تمت الموافقة
+  - `Rejected = 4` — مرفوض
+  - `RequestMoreDocs = 5` — طُلبت وثائق إضافية
+  - كل قيمة تحمل `[Description(...)]`
+
+### 2.2 Enum — حالة وحدة الدم في المخزون
+- [x] إنشاء `BloodConnectAPI.Models/Enums/BloodUnitStatus.cs`
+  - `Available = 1` — متاحة
+  - `Reserved = 2` — محجوزة لطلب
+  - `Used = 3` — تم استخدامها
+  - `Expired = 4` — منتهية الصلاحية
+  - كل قيمة تحمل `[Description(...)]`
+
+### 2.3 نموذج — وثائق المتبرع الطبية
+- [x] إنشاء `BloodConnectAPI.Models/DonorMedicalDocument.cs`
+  - `int DocumentID` — PK
+  - `int DonorID` — FK إلى Donor
+  - `string DocumentType` — نوع الوثيقة (CBC, HBsAg, HIV...)
+  - `string FilePath` — مسار الملف المرفوع
+  - `DateTime UploadedAt` — تاريخ الرفع
+  - `bool IsVerified = false` — هل تم التحقق منها
+  - `string? Notes` — ملاحظات
+  - Navigation: `Donor Donor`
+
+### 2.4 تعديل Donor.cs — نظام الموافقة
+- [x] تعديل `BloodConnectAPI.Models/Donor.cs`
+  - إضافة `DonorApprovalStatus ApprovalStatus = DonorApprovalStatus.PendingDocuments`
+  - إضافة `string? RejectionReason`
+  - إضافة `DateTime? ApprovalDate`
+  - إضافة `string? ReviewedByUserId`
+  - إضافة Navigation: `ICollection<DonorMedicalDocument> MedicalDocuments`
+  - **ملاحظة**: `IsActive` يبقى — يُعيَّن `true` فقط عند `ApprovalStatus == Approved`
+
+### 2.5 تعديل Donation.cs — نظام الفحص
+- [x] تعديل `BloodConnectAPI.Models/Donation.cs`
+  - إضافة `DateTime? TestedAt` — تاريخ إجراء الفحص
+  - إضافة `string? TestedByUserId` — معرف فني المختبر
+  - إضافة `string? TestNotes` — ملاحظات الفحص
+  - إضافة `bool IsAddedToInventory = false` — هل أُضيف للمخزون
+
+### 2.6 تعديل BloodRequest.cs — تتبع الكميات
+- [x] تعديل `BloodConnectAPI.Models/BloodRequest.cs`
+  - إضافة `int QuantityFulfilled = 0` — الكمية المُلباة حتى الآن
+  - تحديث التعليق التوضيحي: Status يُحسب من QuantityFulfilled مقارنةً بـ QuantityNeeded
+
+### 2.7 تعديل BloodInventoryItem.cs — الحالة + الصلاحية
+- [x] تعديل `BloodConnectAPI.Models/BloodInventoryItem.cs`
+  - إضافة `BloodUnitStatus Status = BloodUnitStatus.Available`
+  - تعديل التعليق على `ExpiryDate`: صلاحية 3 أيام من `AddedAt`
+  - إضافة تعليق: `ExpiryDate = AddedAt.AddDays(3)` (يُحسب في طبقة الخدمة)
+
+---
+
+## 🟡 المرحلة 3: تحديث Repository Layer
+
+### 3.1 حذف ملفات المصادقة المخصصة
+- [x] حذف `Interfaces/IRoleRepository.cs`
+- [x] حذف `Interfaces/IUserRepository.cs`
+- [x] حذف `Interfaces/IUserRoleRepository.cs`
+- [x] حذف `Implementations/RoleRepository.cs`
+- [x] حذف `Implementations/UserRepository.cs`
+- [x] حذف `Implementations/UserRoleRepository.cs`
+
+### 3.2 تعديل IUnitOfWork.cs
+- [x] تعديل `Interfaces/IUnitOfWork.cs`
+  - حذف خاصية `IUserRepository Users`
+  - حذف خاصية `IRoleRepository Roles`
+  - حذف خاصية `IUserRoleRepository UserRoles`
+  - إضافة تعليق توضيحي: المصادقة تُدار عبر Identity (`UserManager`, `RoleManager`)
+
+### 3.3 تعديل UnitOfWork.cs
+- [x] تعديل `Implementations/UnitOfWork.cs`
+  - حذف حقول `_users`, `_roles`, `_userRoles` وخصائصها
+  - حذف تهيئتها في constructor
+
+### 3.4 تعديل IDonorRepository.cs
+- [x] تعديل `Interfaces/IDonorRepository.cs`
+  - إضافة: `Task<IEnumerable<Donor>> GetPendingApprovalAsync()` — جلب المتبرعين في انتظار الموافقة
+  - إضافة: `Task<IEnumerable<Donor>> GetByApprovalStatusAsync(DonorApprovalStatus status)`
+  - إضافة: `Task<Donor?> GetWithMedicalDocumentsAsync(int donorId)`
+
+### 3.5 تعديل DonorRepository.cs
+- [x] تعديل `Implementations/DonorRepository.cs`
+  - تنفيذ `GetPendingApprovalAsync` — فلترة `ApprovalStatus == PendingApproval`
+  - تنفيذ `GetByApprovalStatusAsync`
+  - تنفيذ `GetWithMedicalDocumentsAsync` — Include `MedicalDocuments`
+
+### 3.6 تعديل IDonationRepository.cs
+- [x] تعديل `Interfaces/IDonationRepository.cs`
+  - إضافة: `Task<IEnumerable<Donation>> GetPendingTestsAsync()` — تبرعات لم تُفحص بعد
+  - إضافة: `Task<IEnumerable<Donation>> GetAcceptedNotInventoriedAsync()` — مقبولة ولم تُضف للمخزون بعد
+
+### 3.7 تعديل IBloodRequestRepository.cs
+- [x] تعديل `Interfaces/IBloodRequestRepository.cs`
+  - إضافة: `Task<IEnumerable<BloodRequest>> GetPartiallyFulfilledAsync()` — طلبات لم تكتمل بعد
+  - إضافة: `Task UpdateFulfillmentAsync(int requestId, int quantityToAdd)` — تحديث QuantityFulfilled
+
+---
+
+## 🟠 المرحلة 4: تحديث DataSeeder
+
+### 4.1 إعادة كتابة DataSeeder.cs
+- [x] تعديل `BloodConnectAPI.DataAccess/Data/DataSeeder.cs`
+  - تغيير signature: `SeedAsync(ApplicationDbContext context, UserManager<ApplicationUser> userManager, RoleManager<IdentityRole> roleManager)`
+  - إعادة كتابة Seed الأدوار باستخدام `roleManager.CreateAsync(new IdentityRole("Admin"))`
+  - الأدوار: `Admin`, `Doctor`, `Nurse`, `LabTechnician`
+  - إعادة كتابة Seed المستخدم Admin باستخدام `userManager.CreateAsync(adminUser, "Admin@123")`
+  - إضافة: `userManager.AddToRoleAsync(adminUser, "Admin")`
+  - الإبقاء على Seed `BloodTypes` و `BloodInventory` كما هو
+
+---
+
+## 🔴 المرحلة 5: Migration
+
+### 5.1 التحقق من Migrations الحالية
+- [x] فحص مجلد `Migrations` في `BloodConnectAPI.DataAccess`
+- [x] إذا وجدت Migrations قديمة → حذفها جميعاً
+
+### 5.2 إنشاء Migration جديدة
+- [x] تشغيل الأمر:
+  ```
+  dotnet ef migrations add InitialIdentitySchema --project BloodConnectAPI.DataAccess --startup-project BloodConnectAPI
+  ```
+
+### 5.3 مراجعة ملف Migration
+- [x] التحقق من وجود جداول Identity: `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`, `AspNetUserClaims`, `AspNetRoleClaims`, `AspNetUserLogins`, `AspNetUserTokens`
+- [x] التحقق من وجود جدول `DonorMedicalDocuments`
+- [x] التحقق من وجود العمود `ApprovalStatus` في `Donors`
+- [x] التحقق من وجود العمود `QuantityFulfilled` في `BloodRequests`
+- [x] التحقق من وجود العمود `IsAddedToInventory` في `Donations`
+- [x] التحقق من وجود العمود `Status` في `BloodInventoryItems`
+
+### 5.4 تطبيق Migration
+- [x] تشغيل الأمر:
+  ```
+  dotnet ef database update --project BloodConnectAPI.DataAccess --startup-project BloodConnectAPI
+  ```
+
+### 5.5 التحقق النهائي
+- [ ] التأكد من بناء المشروع بدون أخطاء: `dotnet build`
+- [ ] التأكد من تشغيل DataSeeder عند بدء التطبيق

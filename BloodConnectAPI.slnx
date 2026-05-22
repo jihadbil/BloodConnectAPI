@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="BloodConnectAPI.DataAccess/BloodConnectAPI.DataAccess.csproj" Id="cb6b58a0-7f88-4ea2-8dee-34a4c8ee3e43" />
+  <Project Path="BloodConnectAPI.Models.DTOs/BloodConnectAPI.Models.DTOs.csproj" Id="873e798c-e295-4832-90ce-5d97a6d3c39f" />
+  <Project Path="BloodConnectAPI.Models/BloodConnectAPI.Models.csproj" Id="41ab1a7d-6cdd-4a9d-9ac5-841f7edfa5ba" />
+  <Project Path="BloodConnectAPI.Services/BloodConnectAPI.Services.csproj" Id="2c796be7-8dd0-47b4-807a-23bd1fe1ea8a" />
+  <Project Path="BloodConnectAPI/BloodConnectAPI.csproj" />
+</Solution>

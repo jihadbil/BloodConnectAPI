@@ -1,0 +1,291 @@
+# مهام إعادة هيكلة طبقة DTOs
+
+> **المرجع:** [dto_plan.md](file:///C:/Users/Masoud/.gemini/antigravity/brain/6297d0b7-58ae-450b-854a-a648860f5619/dto_plan.md)
+> **المشروع المستهدف:** `BloodConnectAPI.Models.DTOs`
+
+---
+
+## المرحلة 1: الحذف
+
+### المهمة 1 — حذف `UserRoleDto.cs`
+- [x] حذف الملف: `BloodConnectAPI.Models.DTOs/UserRoleDto.cs`
+  - يحتوي على: `UserRoleDto`, `AssignUserRoleDto`
+  - **السبب:** جدول `UserRole` أُزيل كلياً مع Identity
+
+---
+
+## المرحلة 2: إعادة الكتابة الكاملة
+
+### المهمة 2 — إعادة كتابة `UserDto.cs`
+- [x] **مسح** محتوى الملف الحالي كلياً
+- [x] كتابة الـ DTOs التالية في نفس الملف:
+
+#### `ApplicationUserDto` — عرض بيانات مستخدم Identity
+```csharp
+public class ApplicationUserDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
+    public bool IsActive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public List<string> Roles { get; set; } = new();
+    public int? DonorID { get; set; }
+    public string? DonorName { get; set; }
+}
+```
+
+#### `RegisterDto` — تسجيل متبرع جديد (يُعيَّن دور Donor تلقائياً)
+```csharp
+public class RegisterDto
+{
+    public string UserName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? PhoneNumber { get; set; }
+}
+```
+
+#### `LoginDto` — تسجيل الدخول
+```csharp
+public class LoginDto
+{
+    public string UserName { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+}
+```
+
+#### `LoginResponseDto` — استجابة تسجيل الدخول (JWT + بيانات المستخدم)
+```csharp
+public class LoginResponseDto
+{
+    public string Token { get; set; } = string.Empty;
+    public DateTime Expires { get; set; }
+    public ApplicationUserDto User { get; set; } = null!;
+}
+```
+
+#### `UpdateApplicationUserDto` — تحديث بيانات المستخدم
+```csharp
+public class UpdateApplicationUserDto
+{
+    public string? FullName { get; set; }
+    public string? PhoneNumber { get; set; }
+    public bool? IsActive { get; set; }
+}
+```
+
+---
+
+### المهمة 3 — إعادة كتابة `RoleDto.cs`
+- [x] **مسح** محتوى الملف الحالي كلياً
+- [x] كتابة الـ DTOs التالية في نفس الملف:
+
+#### `RoleDto` — عرض دور بسيط من Identity
+```csharp
+public class RoleDto
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+}
+```
+
+#### `CreateRoleDto` — إنشاء دور جديد
+```csharp
+public class CreateRoleDto
+{
+    public string Name { get; set; } = string.Empty;
+}
+```
+
+#### `AssignRoleDto` — تعيين دور لمستخدم أو إزالته
+```csharp
+public class AssignRoleDto
+{
+    public string UserId { get; set; } = string.Empty;
+    public string RoleName { get; set; } = string.Empty;
+}
+```
+
+---
+
+## المرحلة 3: التعديل الجزئي على الملفات الموجودة
+
+### المهمة 4 — تعديل `DonorDto.cs`
+- [x] **في `DonorDto`:**
+  - [x] حذف `public int? UserID`
+  - [x] إضافة `public string? UserId`
+  - [x] إضافة `public string? UserEmail`
+  - [x] إضافة `public DonorApprovalStatus ApprovalStatus`
+  - [x] إضافة `public string? RejectionReason`
+  - [x] إضافة `public DateTime? ApprovalDate`
+  - [x] إضافة `public string? ReviewedByUserId`
+  - [x] إضافة `using BloodConnectAPI.Models.Enums;`
+
+- [x] **في `CreateDonorDto`:**
+  - [x] تغيير `public int? UserID` → `public string? UserId`
+  - [x] حذف `public bool IsActive = true` (تُحدد بعد الموافقة)
+  - [x] إضافة `public DonorApprovalStatus ApprovalStatus { get; set; } = DonorApprovalStatus.PendingDocuments;`
+
+- [x] **في `UpdateDonorDto`:**
+  - [x] إزالة خاصية `UserID` المعقدة بـ `JsonElement` كلياً
+  - [x] إضافة `public string? UserId { get; set; }` بسيطة
+  - [x] إضافة `public DonorApprovalStatus? ApprovalStatus { get; set; }`
+  - [x] حذف حقلي `UserIDWasProvided` و `ParsedUserID`
+
+---
+
+### المهمة 5 — تعديل `DonationDto.cs`
+- [x] **في `DonationDto`:**
+  - [x] إضافة `public DateTime? TestedAt { get; set; }`
+  - [x] إضافة `public string? TestedByUserId { get; set; }`
+  - [x] إضافة `public string? TestNotes { get; set; }`
+  - [x] إضافة `public bool IsAddedToInventory { get; set; }`
+
+- [x] **في `CreateDonationDto`:**
+  - [x] التأكد من غياب `TestResult` (يبدأ دائماً بـ `Pending` تلقائياً في الـ Service)
+
+- [x] **في `UpdateDonationDto`:**
+  - [x] إضافة `public string? TestNotes { get; set; }`
+  - [x] إضافة `public bool? IsAddedToInventory { get; set; }`
+
+---
+
+### المهمة 6 — تعديل `BloodRequestDto.cs`
+- [x] **في `BloodRequestDto`:**
+  - [x] إضافة `public int QuantityFulfilled { get; set; }`
+  - [x] إضافة `public int QuantityRemaining => QuantityNeeded - QuantityFulfilled;`
+
+- [x] **في `UpdateBloodRequestDto`:**
+  - [x] إضافة `public int? QuantityFulfilled { get; set; }`
+
+---
+
+### المهمة 7 — تعديل `BloodInventoryItemDto.cs`
+- [x] **في `BloodInventoryItemDto`:**
+  - [x] إضافة `public BloodUnitStatus Status { get; set; }`
+  - [x] إضافة `using BloodConnectAPI.Models.Enums;`
+
+- [x] **في `CreateBloodInventoryItemDto`:**
+  - [x] **حذف** `public DateTime ExpiryDate { get; set; }` (تُحسب تلقائياً: AddedAt + 3 أيام)
+
+- [x] **في `UpdateBloodInventoryItemDto`:**
+  - [x] استبدال `public bool? IsUsed { get; set; }` → `public BloodUnitStatus? Status { get; set; }`
+  - [x] **حذف** `public DateTime? ExpiryDate { get; set; }` (لا يُسمح بتعديله يدوياً)
+
+---
+
+## المرحلة 4: إنشاء ملفات جديدة
+
+### المهمة 8 — إنشاء `DonorMedicalDocumentDto.cs`
+- [x] إنشاء الملف: `BloodConnectAPI.Models.DTOs/DonorMedicalDocumentDto.cs`
+- [x] كتابة الـ DTOs التالية:
+
+#### `DonorMedicalDocumentDto` — عرض وثيقة طبية
+```csharp
+public class DonorMedicalDocumentDto
+{
+    public int DocumentID { get; set; }
+    public int DonorID { get; set; }
+    public string DocumentType { get; set; } = string.Empty;
+    public string FilePath { get; set; } = string.Empty;   // المسار النسبي في wwwroot
+    public DateTime UploadedAt { get; set; }
+    public bool IsVerified { get; set; }
+    public string? Notes { get; set; }
+}
+```
+
+#### `SubmitMedicalDocumentDto` — رفع وثيقة (IFormFile)
+```csharp
+public class SubmitMedicalDocumentDto
+{
+    public int DonorID { get; set; }
+    public string DocumentType { get; set; } = string.Empty;  // CBC, HBsAg, HIV, HCV, Syphilis
+    public IFormFile File { get; set; } = null!;
+}
+```
+
+#### `VerifyMedicalDocumentDto` — تحقق الإدارة من وثيقة
+```csharp
+public class VerifyMedicalDocumentDto
+{
+    public bool IsVerified { get; set; }
+    public string? Notes { get; set; }
+}
+```
+
+---
+
+### المهمة 9 — إنشاء `ApproveDonorDto.cs`
+- [x] إنشاء الملف: `BloodConnectAPI.Models.DTOs/ApproveDonorDto.cs`
+- [x] كتابة الـ DTO التالي:
+
+```csharp
+using BloodConnectAPI.Models.Enums;
+
+namespace BloodConnectAPI.Models.DTOs;
+
+/// <summary>
+/// DTO لقرار موافقة الإدارة على متبرع
+/// القيم المسموح بها: Approved, Rejected, RequestMoreDocs
+/// </summary>
+public class ApproveDonorDto
+{
+    public DonorApprovalStatus NewStatus { get; set; }
+    public string? RejectionReason { get; set; }  // مطلوب إذا كان Rejected أو RequestMoreDocs
+}
+```
+
+---
+
+### المهمة 10 — إنشاء `LabTestDonationDto.cs`
+- [x] إنشاء الملف: `BloodConnectAPI.Models.DTOs/LabTestDonationDto.cs`
+- [x] كتابة الـ DTO التالي:
+
+```csharp
+using BloodConnectAPI.Models.Enums;
+
+namespace BloodConnectAPI.Models.DTOs;
+
+/// <summary>
+/// DTO لتسجيل نتيجة الفحص المختبري للتبرع
+/// يستخدمه Admin بعد إجراء الفحوصات
+/// </summary>
+public class LabTestDonationDto
+{
+    public TestResult TestResult { get; set; }              // Accepted أو Rejected
+    public string? TestNotes { get; set; }
+    public bool AddToInventoryIfAccepted { get; set; } = true;  // إضافة تلقائية عند القبول
+}
+```
+
+---
+
+## المهمة 11 — التحقق النهائي
+- [x] تشغيل `dotnet build` والتأكد من عدم وجود أخطاء
+- [x] التأكد من عدم وجود إشارات للـ DTOs المحذوفة (`UserRoleDto`, `UserDto` القديم, `RoleDto` القديم) في باقي المشروع
+  ```powershell
+  # بحث عن استخدامات DTOs القديمة
+  grep -r "UserRoleDto\|public int UserID\|List<int> RoleIDs" --include="*.cs"
+  ```
+- [x] التأكد من بناء مشروع `BloodConnectAPI.Models.DTOs` بمفرده:
+  ```
+  dotnet build BloodConnectAPI.Models.DTOs
+  ```
+
+---
+
+## ملاحظات التنفيذ
+
+> [!IMPORTANT]
+> **ترتيب التنفيذ مهم:** ابدأ بالمهام 1-3 (حذف وإعادة كتابة) قبل المهام 4-7 (تعديل) لتجنب تعارضات الأنواع.
+
+> [!NOTE]
+> **`IFormFile` في `SubmitMedicalDocumentDto`:** هذا النوع موجود في `Microsoft.AspNetCore.Http` — تأكد من أن مشروع `DTOs` يرث من `Microsoft.NET.Sdk.Web` أو أضف مرجعاً لـ `Microsoft.AspNetCore.Http.Abstractions`.
+
+> [!NOTE]
+> **الأدوار في النظام — دوران فقط:** `Admin` (يُنشأ عبر DataSeeder) و `Donor` (يُعيَّن تلقائياً عند التسجيل). لا توجد أدوار أخرى.

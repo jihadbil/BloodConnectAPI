@@ -1,0 +1,225 @@
+# مهام تحديث طبقة الخدمات — BloodConnectAPI
+
+> **المرجع:** `implementation_plan.md`  
+> **الحالة:** ⏳ لم يبدأ التنفيذ بعد
+
+---
+
+## المرحلة 1 — AuthService (إعادة كتابة كاملة) 🔴
+
+### 1.1 تحديث `IAuthService.cs`
+- [x] حذف `using BloodConnectAPI.Models.Responses`
+- [x] تغيير signature إلى: `Task<ServiceResponse<LoginResponseDto>> LoginAsync(LoginDto dto)`
+- [x] تغيير signature إلى: `Task<ServiceResponse<ApplicationUserDto>> RegisterAsync(RegisterDto dto)`
+- [x] تغيير signature إلى: `Task<ServiceResponse<bool>> ChangePasswordAsync(string userId, string currentPassword, string newPassword)`
+- [x] إضافة `using BloodConnectAPI.Models.DTOs`
+
+### 1.2 إعادة كتابة `AuthService.cs`
+- [x] استبدال Constructor — حذف `IUnitOfWork`، حقن `UserManager<ApplicationUser>` + `SignInManager<ApplicationUser>` + `IConfiguration`
+- [x] إعادة كتابة `RegisterAsync`:
+  - [x] إنشاء `ApplicationUser` من `RegisterDto`
+  - [x] `_userManager.CreateAsync(user, dto.Password)` مع معالجة أخطاء Identity
+  - [x] `_userManager.AddToRoleAsync(user, "Donor")`
+  - [x] Map إلى `ApplicationUserDto` وإرجاع SuccessResponse
+- [x] إعادة كتابة `LoginAsync`:
+  - [x] `_userManager.FindByNameAsync(dto.UserName)`
+  - [x] التحقق من `user.IsActive`
+  - [x] `_userManager.CheckPasswordAsync(user, dto.Password)`
+  - [x] `_userManager.GetRolesAsync(user)`
+  - [x] استدعاء `GenerateJwtToken` الخاصة
+  - [x] إرجاع `LoginResponseDto { Token, Expires, User }`
+- [x] إعادة كتابة `ChangePasswordAsync` — `int userId` → `string userId`
+- [x] إضافة دالة خاصة `GenerateJwtToken(ApplicationUser user, IList<string> roles)`:
+  - [x] قراءة `JwtSettings` من `IConfiguration`
+  - [x] بناء Claims: `(sub, email, name, role...)`
+  - [x] توقيع بـ `HmacSha256`
+  - [x] إرجاع `(tokenString, expiryDate)`
+
+---
+
+## المرحلة 2 — UserService (إعادة كتابة كاملة) 🔴
+
+### 2.1 تحديث `IUserService.cs`
+- [x] تغيير كل `int id` → `string id` (GUID)
+- [x] تغيير `UserDto` → `ApplicationUserDto` في كل signatures
+- [x] حذف `CreateAsync` (الإنشاء عبر AuthService فقط)
+- [x] تغيير `AssignRoleAsync(int userId, int roleId)` → `AssignRoleAsync(string userId, string roleName)`
+- [x] تغيير `RemoveRoleAsync(int userId, int roleId)` → `RemoveRoleAsync(string userId, string roleName)`
+- [x] تغيير `GetUserRolesAsync(int userId)` → `GetUserRolesAsync(string userId)` يرجع `IEnumerable<string>`
+- [x] حذف `GetWithRolesAsync` (مدمج في `GetByIdAsync`)
+- [x] تحديث `UpdateAsync` → يستقبل `UpdateApplicationUserDto`
+- [x] تحديث `GetWithDonorAsync` → `string userId`
+
+### 2.2 إعادة كتابة `UserService.cs`
+- [x] استبدال Constructor — حذف BCrypt، حقن `UserManager<ApplicationUser>` + `RoleManager<IdentityRole>` + `IUnitOfWork` + `IMapper`
+- [x] إعادة كتابة `GetByIdAsync(string id)`:
+  - [x] `_userManager.FindByIdAsync(id)`
+  - [x] `_userManager.GetRolesAsync(user)` → تعبئة `ApplicationUserDto.Roles`
+  - [x] جلب Donor المرتبط عبر `_unitOfWork.Donors.FirstOrDefaultAsync(d => d.UserId == id)`
+- [x] إعادة كتابة `GetAllAsync` — `_userManager.Users.AsQueryable()` مع فلترة وترقيم صفحات
+- [x] إعادة كتابة `UpdateAsync(string id, UpdateApplicationUserDto dto)`:
+  - [x] `_userManager.FindByIdAsync`
+  - [x] تحديث `FullName`, `PhoneNumber`, `IsActive`, `UpdatedAt`
+  - [x] `_userManager.UpdateAsync(user)`
+- [x] إعادة كتابة `DeleteAsync(string id)` — `_userManager.FindByIdAsync` → `_userManager.DeleteAsync`
+- [x] إعادة كتابة `ToggleActiveAsync(string id)` — `user.IsActive = !user.IsActive` → `_userManager.UpdateAsync`
+- [x] إعادة كتابة `GetUserRolesAsync(string userId)` — `_userManager.GetRolesAsync`
+- [x] إعادة كتابة `AssignRoleAsync(string userId, string roleName)`:
+  - [x] `_roleManager.RoleExistsAsync(roleName)` للتحقق
+  - [x] `_userManager.AddToRoleAsync(user, roleName)`
+- [x] إعادة كتابة `RemoveRoleAsync(string userId, string roleName)` — `_userManager.RemoveFromRoleAsync`
+- [x] إعادة كتابة `GetWithDonorAsync(string userId)`
+
+---
+
+## المرحلة 3 — DonorService (تعديل + إضافات) 🔴
+
+### 3.1 تحديث `IDonorService.cs`
+- [x] تغيير `LinkDonorToUserAsync(int donorId, int userId)` → `(int donorId, string userId)`
+- [x] إضافة: `Task<ServiceResponse<DonorDto>> ApproveDonorAsync(int donorId, ApproveDonorDto dto, string reviewerUserId)`
+- [x] إضافة: `Task<ServiceResponse<PagedResult<DonorDto>>> GetByApprovalStatusAsync(DonorApprovalStatus status, PaginationParams pagination)`
+- [x] إضافة: `Task<ServiceResponse<IEnumerable<DonorMedicalDocumentDto>>> GetMedicalDocumentsAsync(int donorId)`
+
+### 3.2 تعديل `DonorService.cs`
+- [x] تحديث Constructor — إضافة `UserManager<ApplicationUser> _userManager`
+- [x] تعديل `CreateAsync(CreateDonorDto dto)`:
+  - [x] استبدال `dto.UserID.HasValue` بـ `dto.UserId != null`
+  - [x] استبدال `_unitOfWork.Users.GetByIdAsync(...)` بـ `_userManager.FindByIdAsync(dto.UserId)`
+  - [x] استبدال `d.UserID == dto.UserID.Value` بـ `d.UserId == dto.UserId`
+  - [x] إضافة: `donor.ApprovalStatus = dto.ApprovalStatus`
+- [x] تعديل `UpdateAsync(int id, UpdateDonorDto dto)`:
+  - [x] حذف منطق `UserIDWasProvided` / `ParsedUserID` كلياً
+  - [x] استبدال بـ: `if (dto.UserId != null)` → `_userManager.FindByIdAsync(dto.UserId)`
+  - [x] إضافة: `if (dto.ApprovalStatus.HasValue) existing.ApprovalStatus = dto.ApprovalStatus.Value`
+- [x] تعديل `LinkDonorToUserAsync(int donorId, string userId)`:
+  - [x] `int userId` → `string userId` في الـ signature
+  - [x] `_unitOfWork.Users.GetByIdAsync(userId)` → `_userManager.FindByIdAsync(userId)`
+  - [x] `donor.UserID = userId` → `donor.UserId = userId`
+  - [x] `d.UserID == userId` → `d.UserId == userId`
+- [x] تعديل `UnlinkDonorFromUserAsync`:
+  - [x] `donor.UserID == null` → `donor.UserId == null`
+  - [x] `donor.UserID = null` → `donor.UserId = null`
+- [x] إضافة `ApproveDonorAsync(int donorId, ApproveDonorDto dto, string reviewerUserId)`:
+  - [x] جلب المتبرع وتحقق الوجود
+  - [x] تحديث `ApprovalStatus`, `RejectionReason`, `ApprovalDate`, `ReviewedByUserId`
+  - [x] `UpdateAsync + SaveChangesAsync`
+  - [x] إرجاع `DonorDto` المحدّث
+- [x] إضافة `GetByApprovalStatusAsync(DonorApprovalStatus status, PaginationParams pagination)`:
+  - [x] `GetPagedAsync` مع `filter: d => d.ApprovalStatus == status`
+- [x] إضافة `GetMedicalDocumentsAsync(int donorId)`:
+  - [x] تحقق من وجود المتبرع
+  - [x] `_unitOfWork.DonorMedicalDocuments.FindAsync(d => d.DonorID == donorId)` *(انظر مهمة 7.1)*
+
+---
+
+## المرحلة 4 — DonationService (إضافات) 🟡
+
+### 4.1 تحديث `IDonationService.cs`
+- [x] إضافة: `Task<ServiceResponse<DonationDto>> LabTestDonationAsync(int donationId, LabTestDonationDto dto, string testedByUserId)`
+
+### 4.2 تعديل `DonationService.cs`
+- [x] تعديل `UpdateAsync(int id, UpdateDonationDto dto)` — إضافة:
+  - [x] `if (dto.TestNotes != null) existing.TestNotes = dto.TestNotes`
+  - [x] `if (dto.IsAddedToInventory.HasValue) existing.IsAddedToInventory = dto.IsAddedToInventory.Value`
+- [x] تعديل `UpdateTestResultAsync` — إضافة:
+  - [x] `donation.TestedAt = DateTime.UtcNow`
+  - [x] `if (testResult == TestResult.Accepted) donation.IsAddedToInventory = true`
+- [x] إضافة `LabTestDonationAsync(int donationId, LabTestDonationDto dto, string testedByUserId)`:
+  - [x] جلب التبرع وتحقق الوجود
+  - [x] تحقق أن `TestResult == Pending` (لا إعادة فحص)
+  - [x] تعيين: `TestResult`, `TestNotes`, `TestedAt = UtcNow`, `TestedByUserId`
+  - [x] `UpdateAsync + SaveChangesAsync` (أول مرة)
+  - [x] إذا `Accepted && dto.AddToInventoryIfAccepted`:
+    - [x] `_inventoryService.AddToInventoryAsync(...)`
+    - [x] `donation.IsAddedToInventory = true`
+    - [x] `UpdateAsync + SaveChangesAsync` (ثاني مرة)
+  - [x] إرجاع `DonationDto` المحدّث
+
+---
+
+## المرحلة 5 — InventoryService (تعديل) 🟡
+
+### 5.1 تعديل `InventoryService.cs`
+- [x] تعديل `AddToInventoryAsync` — إضافة `Status = BloodUnitStatus.Available` للـ `BloodInventoryItem` الجديد
+- [x] تعديل `DisburseDonationAsync` — إضافة `item.Status = BloodUnitStatus.Used` عند الصرف
+- [x] تعديل `RemoveExpiredUnitsAsync` — إضافة `item.Status = BloodUnitStatus.Expired` قبل الحذف
+
+### 5.2 تحديث `IInventoryService.cs` (اختياري)
+- [x] إضافة: `Task<ServiceResponse<BloodInventoryItemDto>> UpdateItemStatusAsync(int itemId, BloodUnitStatus newStatus)`
+- [x] تنفيذها في `InventoryService.cs` إن أُضيفت
+
+---
+
+## المرحلة 6 — BloodRequestService (تعديل) 🟡
+
+### 6.1 تعديل `BloodRequestService.cs`
+- [x] تعديل `FulfillRequestAsync`:
+  - [x] إضافة: `request.QuantityFulfilled += quantity`
+  - [x] استبدال `request.Status = RequestStatus.Fulfilled` بـ:
+    ```
+    if (request.QuantityFulfilled >= request.QuantityNeeded)
+        request.Status = RequestStatus.Fulfilled;
+    else
+        request.Status = RequestStatus.PartiallyFulfilled;
+    ```
+  - [x] تحقق `quantity > (request.QuantityNeeded - request.QuantityFulfilled)` بدلاً من `quantity > request.QuantityNeeded`
+
+---
+
+## المرحلة 7 — DonorMedicalDocumentService + Repository (جديد) 🟢
+
+### 7.1 إنشاء Repository في DataAccess *(خارج نطاق Services لكن مطلوب)*
+- [x] إنشاء `IDonorMedicalDocumentRepository` في `DataAccess/Repositories/Interfaces/`
+- [x] إنشاء `DonorMedicalDocumentRepository` في `DataAccess/Repositories/Implementations/`
+  - [x] تنفيذ `FindAsync(d => d.DonorID == donorId)`
+  - [x] تنفيذ `GetByIdAsync(int documentId)`
+  - [x] تنفيذ `AddAsync` + `UpdateAsync` + `DeleteAsync`
+- [x] إضافة `IDonorMedicalDocumentRepository DonorMedicalDocuments` إلى `IUnitOfWork`
+- [x] إضافة التنفيذ في `UnitOfWork.cs`
+
+### 7.2 إنشاء `IDonorMedicalDocumentService.cs`
+- [x] إنشاء الملف في `Services/Interfaces/`
+- [x] تعريف:
+  - [x] `Task<ServiceResponse<DonorMedicalDocumentDto>> UploadDocumentAsync(SubmitMedicalDocumentDto dto, string uploadsRootPath)`
+  - [x] `Task<ServiceResponse<IEnumerable<DonorMedicalDocumentDto>>> GetByDonorIdAsync(int donorId)`
+  - [x] `Task<ServiceResponse<DonorMedicalDocumentDto>> VerifyDocumentAsync(int documentId, VerifyMedicalDocumentDto dto)`
+  - [x] `Task<ServiceResponse<bool>> DeleteDocumentAsync(int documentId)`
+
+### 7.3 إنشاء `DonorMedicalDocumentService.cs`
+- [x] إنشاء الملف في `Services/Implementations/`
+- [x] Constructor: `IUnitOfWork _unitOfWork` + `IMapper _mapper`
+- [x] تنفيذ `UploadDocumentAsync`:
+  - [x] تحقق من وجود المتبرع
+  - [x] تحقق من امتداد الملف (`.pdf`, `.jpg`, `.png` فقط)
+  - [x] إنشاء اسم فريد: `{DonorID}_{DocumentType}_{Guid}{ext}`
+  - [x] إنشاء مجلد `wwwroot/uploads/medical-documents/` إذا لم يكن موجوداً (`Directory.CreateDirectory`)
+  - [x] حفظ الملف: `File.Copy` أو `CopyToAsync` من `IFormFile`
+  - [x] إنشاء `DonorMedicalDocument` وحفظه في قاعدة البيانات
+  - [x] إذا كانت `donor.ApprovalStatus == PendingDocuments` → تحديثها إلى `PendingApproval`
+  - [x] إرجاع `DonorMedicalDocumentDto`
+- [x] تنفيذ `GetByDonorIdAsync`
+- [x] تنفيذ `VerifyDocumentAsync`
+- [x] تنفيذ `DeleteDocumentAsync`:
+  - [x] جلب السجل
+  - [x] `File.Delete(fullPath)` إذا كان الملف موجوداً
+  - [x] `DeleteAsync + SaveChangesAsync`
+
+### 7.4 إنشاء مجلد رفع الملفات
+- [x] إنشاء مجلد `wwwroot/uploads/medical-documents/` في مشروع `BloodConnectAPI`
+- [x] إضافة `.gitkeep` أو ملف `README` لضمان عدم تجاهل المجلد بـ git
+
+---
+
+## خطوة ما بعد التنفيذ — التحقق
+
+### بناء المشروع
+- [x] `dotnet build BloodConnectAPI.Services` — يجب أن ينجح بدون أخطاء
+- [x] `dotnet build BloodConnectAPI` — التأكد من التوافق مع بقية الطبقات
+
+### فحص التكامل
+- [x] `AuthService` — لا مراجع لـ `_unitOfWork.Users` أو `_unitOfWork.UserRoles`
+- [x] `UserService` — لا مراجع لـ `int userId` أو `int roleId`
+- [x] `DonorService` — لا مراجع لـ `UserID` (int) أو `_unitOfWork.Users`
+- [x] `DonationService` — `LabTestDonationAsync` يسجّل `TestedAt` و`TestedByUserId`
+- [x] `InventoryService` — كل وحدة جديدة تحمل `Status = Available`
+- [x] `BloodRequestService` — `QuantityFulfilled` يتراكم ولا يُعاد للصفر

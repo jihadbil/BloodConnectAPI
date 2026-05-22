@@ -1,0 +1,541 @@
+# خطة إصلاح المشاكل الحرجة والمتوسطة — BloodConnectAPI
+
+## نظرة عامة
+
+| المرحلة | الملفات المتأثرة | الأولوية |
+|---------|----------------|---------|
+| 1 — إصلاح Program.cs | `Program.cs` | 🔴 حرجة |
+| 2 — تنظيف الإعدادات والحزم | `appsettings.json`, `BloodConnectAPI.csproj`, `Services.csproj` | 🔴 حرجة |
+| 3 — إصلاح منطق الخدمات | `DonorResponseService.cs`, `InventoryService.cs`, `DonorService.cs` | 🟠 متوسطة |
+| 4 — إضافة Validation للـ DTOs | `DonorDto.cs`, `PatientDto.cs`, `DonationDto.cs`, `BloodRequestDto.cs` | 🟠 متوسطة |
+
+**الوقت التقديري:** 2-3 ساعات
+
+---
+
+## المرحلة 1 — إصلاح `Program.cs` 🔴
+
+### التغييرات المطلوبة
+
+#### [MODIFY] Program.cs
+
+**أ) إزالة using غير الضروري وإضافة using الصحيح:**
+```diff
+- using Microsoft.AspNetCore.Authentication;
+- using Microsoft.Identity.Web;
++ using Microsoft.AspNetCore.Authentication.JwtBearer;
++ using Microsoft.IdentityModel.Tokens;
+```
+> ملاحظة: `JwtBearer` و `Tokens` موجودان بالفعل في السطور 3 و 6، احذف السطرين 9-10 فقط.
+
+---
+
+**ب) إضافة JWT Bearer بعد `AddIdentity` مباشرة (بعد السطر 20):**
+
+```csharp
+// JWT Authentication
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme             = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+    var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]
+        ?? throw new InvalidOperationException("JwtSettings:Key is missing"));
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer           = true,
+        ValidateAudience         = true,
+        ValidateLifetime         = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer              = jwtSettings["Issuer"],
+        ValidAudience            = jwtSettings["Audience"],
+        IssuerSigningKey         = new SymmetricSecurityKey(key),
+        ClockSkew                = TimeSpan.Zero  // لا سماح بفارق زمني
+    };
+});
+```
+
+> [!IMPORTANT]
+> يجب حذف `builder.Services.AddIdentity<...>().AddDefaultTokenProviders()` **ليس** — بل يبقى. فقط يُضاف `AddAuthentication` بعده. الترتيب مهم: `AddIdentity` أولاً ثم `AddAuthentication`.
+
+---
+
+**ج) إضافة `app.UseStaticFiles()` في pipeline (قبل `UseAuthentication`):**
+
+```diff
+  app.UseHttpsRedirection();
+
++ app.UseStaticFiles();   // لتقديم ملفات wwwroot/uploads/
+
+  app.UseCors("AllowFrontend");
+  app.UseAuthentication();
+  app.UseAuthorization();
+```
+
+---
+
+**الملف الكامل بعد التعديل — الجزء الأول (السطور 1-72):**
+
+```csharp
+using BloodConnectAPI.DataAccess.Data;
+using BloodConnectAPI.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Scalar.AspNetCore;
+using System.Text;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Database
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Identity
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
+
+// JWT Authentication
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme    = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme             = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+    var key = Encoding.ASCII.GetBytes(jwtSettings["Key"]
+        ?? throw new InvalidOperationException("JwtSettings:Key is missing"));
+
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer           = true,
+        ValidateAudience         = true,
+        ValidateLifetime         = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer              = jwtSettings["Issuer"],
+        ValidAudience            = jwtSettings["Audience"],
+        IssuerSigningKey         = new SymmetricSecurityKey(key),
+        ClockSkew                = TimeSpan.Zero
+    };
+});
+
+// CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:5173",
+                "https://localhost:5173"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
+// Controllers + OpenAPI
+builder.Services.AddControllers();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddSchemaTransformer((schema, context, cancellationToken) =>
+    {
+        if (context.JsonTypeInfo.Type == typeof(IFormFile))
+        {
+            schema.Type = Microsoft.OpenApi.JsonSchemaType.String;
+            schema.Format = "binary";
+            schema.Properties?.Clear();
+        }
+        return Task.CompletedTask;
+    });
+});
+
+// AutoMapper
+builder.Services.AddAutoMapper(cfg =>
+    cfg.AddMaps(typeof(BloodConnectAPI.Service.Implementations.DonorService).Assembly));
+
+// Repository / Unit of Work
+builder.Services.AddScoped<BloodConnectAPI.DataAccess.Repositories.Interfaces.IUnitOfWork,
+                           BloodConnectAPI.DataAccess.Repositories.Implementations.UnitOfWork>();
+
+// Services
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IAuthService,    BloodConnectAPI.Service.Implementations.AuthService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IUserService,     BloodConnectAPI.Service.Implementations.UserService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonorService,    BloodConnectAPI.Service.Implementations.DonorService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonationService, BloodConnectAPI.Service.Implementations.DonationService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IInventoryService,BloodConnectAPI.Service.Implementations.InventoryService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IBloodRequestService,       BloodConnectAPI.Service.Implementations.BloodRequestService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonorResponseService,      BloodConnectAPI.Service.Implementations.DonorResponseService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IDonorMedicalDocumentService, BloodConnectAPI.Service.Implementations.DonorMedicalDocumentService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IPatientService,  BloodConnectAPI.Service.Implementations.PatientService>();
+builder.Services.AddScoped<BloodConnectAPI.Service.Interfaces.IReportService,   BloodConnectAPI.Service.Implementations.ReportService>();
+
+var app = builder.Build();
+```
+
+**الجزء الثاني — Pipeline (بعد Seed):**
+
+```csharp
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(options =>
+    {
+        options.Title = "BloodConnect API";
+        options.Theme = Scalar.AspNetCore.ScalarTheme.Mars;
+    });
+}
+
+app.UseHttpsRedirection();
+app.UseStaticFiles();           // ← جديد
+app.UseCors("AllowFrontend");
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
+app.Run();
+```
+
+---
+
+## المرحلة 2 — تنظيف الإعدادات والحزم 🔴
+
+### [MODIFY] `BloodConnectAPI.csproj` — حذف حزم Azure AD
+
+```diff
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" NoWarn="NU1605" />
+-   <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.8" NoWarn="NU1605" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.8" />
+-   <PackageReference Include="Microsoft.Identity.Web" Version="4.6.0" />
+-   <PackageReference Include="Microsoft.Identity.Web.DownstreamApi" Version="4.6.0" />
+-   <PackageReference Include="Microsoft.Identity.Web.MicrosoftGraph" Version="4.6.0" />
+-   <PackageReference Include="Microsoft.Identity.Web.UI" Version="4.6.0" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.0.0" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.14.14" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
+  </ItemGroup>
+```
+
+---
+
+### [MODIFY] `BloodConnectAPI.Services.csproj` — حذف حزم غير ضرورية
+
+```diff
+  <ItemGroup>
+    <PackageReference Include="AutoMapper" Version="16.1.1" />
+-   <PackageReference Include="Microsoft.AspNetCore.Http.Features" Version="5.0.17" />
+-   <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+  </ItemGroup>
+```
+
+---
+
+### [MODIFY] `appsettings.json` — حذف مقاطع Azure ونقل الـ Secret
+
+```diff
+  {
+    "ConnectionStrings": {
+      "DefaultConnection": "Server=(local);Database=BloodConnectDB;Trusted_Connection=true;TrustServerCertificate=true;"
+    },
+    "JwtSettings": {
+-     "Key": "BloodConnect-Secret-Key-Min-32-Characters!",
++     "Key": "",
+      "Issuer": "BloodConnectAPI",
+      "Audience": "BloodConnectClients",
+      "ExpiryInDays": 7
+    },
+    "Logging": {
+      "LogLevel": {
+        "Default": "Information",
+        "Microsoft.AspNetCore": "Warning"
+      }
+    },
+-   "AllowedHosts": "*",
+-   "AzureAd": {
+-     "Instance": "https://login.microsoftonline.com/",
+-     "Domain": "masoudbilkhair99gmail.onmicrosoft.com",
+-     "TenantId": "fd75edcc-c7df-4570-a160-760c96ce603b",
+-     "ClientId": "95c69437-44d2-4382-8d40-76fd0d6d05f7",
+-     "CallbackPath": "/signin-oidc",
+-     "Scopes": "access_as_user",
+-     "ClientSecret": "Client secret from app-registration. Check user secrets/azure portal.",
+-     "ClientCertificates": []
+-   },
+-   "MicrosoftGraph": {
+-     "BaseUrl": "https://graph.microsoft.com/v1.0",
+-     "Scopes": "user.read"
+-   },
+-   "DownstreamApi": {
+-     "BaseUrl": "https://graph.microsoft.com/v1.0",
+-     "Scopes": ["access_as_user"]
+-   }
++   "AllowedHosts": "*"
+  }
+```
+
+> [!IMPORTANT]
+> بعد حذف القيمة من `appsettings.json`، أضف JWT Key عبر **User Secrets**:
+> ```bash
+> dotnet user-secrets set "JwtSettings:Key" "BloodConnect-Secret-Key-Min-32-Characters!"
+> ```
+> هذا يضمن عدم وجود مفاتيح في الكود المصدري.
+
+---
+
+## المرحلة 3 — إصلاح منطق الخدمات 🟠
+
+### [MODIFY] `DonorResponseService.cs` — إضافة SaveChangesAsync
+
+**المشكلة:** `UpdateRequestStatusAfterDonationAsync` لا تحفظ التغييرات.
+
+```diff
+  private async Task UpdateRequestStatusAfterDonationAsync(int requestId)
+  {
+      var request = await _unitOfWork.BloodRequests.GetByIdAsync(requestId);
+      if (request == null) return;
+
+      var donatedResponses = await _unitOfWork.DonorResponseRepository
+          .GetByRequestIdAsync(requestId);
+
+      var donatedCount = donatedResponses.Count(r => r.Status == ResponseStatus.Donated);
+
+      if (donatedCount >= request.QuantityNeeded)
+          request.Status = RequestStatus.Fulfilled;
+      else if (donatedCount > 0)
+          request.Status = RequestStatus.PartiallyFulfilled;
+
+      await _unitOfWork.BloodRequests.UpdateAsync(request);
++     await _unitOfWork.SaveChangesAsync();
+  }
+```
+
+---
+
+### [MODIFY] `InventoryService.cs` — إزالة Update قبل Delete
+
+**المشكلة:** `RemoveExpiredUnitsAsync` يفعل Update ثم Delete على نفس الـ item — الـ Update زائد وغير منطقي.
+
+```diff
+  foreach (var item in expiredItems)
+  {
+      await _unitOfWork.BloodInventories.UpdateQuantityAsync(
+          item.Inventory.BloodTypeID,
+          -item.Quantity
+      );
+
+-     item.Status = BloodUnitStatus.Expired;
+-     await _unitOfWork.BloodInventoryItems.UpdateAsync(item);
+
+      await _unitOfWork.BloodInventoryItems.DeleteAsync(item);
+      totalRemoved += item.Quantity;
+  }
+```
+
+---
+
+### [MODIFY] `DonorService.cs` — استخدام `DonationBusinessRules` للتحقق من العمر
+
+**المشكلة:** منطق التحقق من العمر مكرر وأقل دقة من `DonationBusinessRules.ValidateDonorAge`.
+
+```diff
+- if (dto.DateOfBirth >= DateTime.UtcNow.AddYears(-18))
+-     errors.Add("يجب أن يكون عمر المتبرع 18 سنة على الأقل");
++ var ageValidation = DonationBusinessRules.ValidateDonorAge(dto.DateOfBirth);
++ if (!ageValidation.IsValid)
++     errors.Add(ageValidation.ErrorMessage);
+```
+
+**تأكد من إضافة الـ using:**
+```csharp
+using BloodConnectAPI.Service.Common;
+```
+
+---
+
+## المرحلة 4 — إضافة Validation Attributes للـ DTOs 🟠
+
+### [MODIFY] `DonorDto.cs` — إضافة `[Required]` و `[StringLength]`
+
+```diff
++ using System.ComponentModel.DataAnnotations;
+
+  public class CreateDonorDto
+  {
++     [Required(ErrorMessage = "الاسم الكامل مطلوب")]
++     [StringLength(100, ErrorMessage = "الاسم لا يتجاوز 100 حرف")]
+      public string FullName { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "الرقم الوطني مطلوب")]
++     [StringLength(20, ErrorMessage = "الرقم الوطني لا يتجاوز 20 حرفاً")]
+      public string NationalID { get; set; } = string.Empty;
+
+      public Gender Gender { get; set; }
+      public DateTime DateOfBirth { get; set; }
+
++     [Required(ErrorMessage = "رقم الهاتف مطلوب")]
++     [Phone(ErrorMessage = "رقم هاتف غير صالح")]
+      public string Phone { get; set; } = string.Empty;
+
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد فصيلة الدم")]
+      public int BloodTypeID { get; set; }
+
++     [Required(ErrorMessage = "المدينة مطلوبة")]
+      public string City { get; set; } = string.Empty;
+
+      public string? UserId { get; set; }
+      public DonorApprovalStatus ApprovalStatus { get; set; } = DonorApprovalStatus.PendingDocuments;
+  }
+```
+
+---
+
+### [MODIFY] `PatientDto.cs` — إضافة Validation
+
+```diff
++ using System.ComponentModel.DataAnnotations;
+
+  public class CreatePatientDto
+  {
++     [Required(ErrorMessage = "الاسم الكامل مطلوب")]
++     [StringLength(100)]
+      public string FullName { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "الرقم الوطني مطلوب")]
++     [StringLength(20)]
+      public string NationalID { get; set; } = string.Empty;
+
+      public Gender Gender { get; set; }
+      public DateTime DateOfBirth { get; set; }
+
++     [Required(ErrorMessage = "رقم الهاتف مطلوب")]
++     [Phone]
+      public string Phone { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "المدينة مطلوبة")]
+      public string City { get; set; } = string.Empty;
+
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد فصيلة الدم")]
+      public int BloodTypeID { get; set; }
+  }
+```
+
+---
+
+### [MODIFY] `DonationDto.cs` — إضافة Validation
+
+```diff
++ using System.ComponentModel.DataAnnotations;
+
+  public class CreateDonationDto
+  {
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد رقم المتبرع")]
+      public int DonorID { get; set; }
+
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد فصيلة الدم")]
+      public int BloodTypeID { get; set; }
+
+      public DateTime DonationDate { get; set; }
+
++     [Range(1, 5, ErrorMessage = "الكمية يجب أن تكون بين 1 و 5 وحدات")]
+      public int Quantity { get; set; }
+
+      public string? Notes { get; set; }
+  }
+```
+
+---
+
+### [MODIFY] `BloodRequestDto.cs` — إضافة Validation
+
+```diff
++ using System.ComponentModel.DataAnnotations;
+
+  public class CreateBloodRequestDto
+  {
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد رقم المريض")]
+      public int PatientID { get; set; }
+
++     [Range(1, int.MaxValue, ErrorMessage = "يجب تحديد فصيلة الدم")]
+      public int BloodTypeID { get; set; }
+
++     [Range(1, 100, ErrorMessage = "الكمية المطلوبة يجب أن تكون بين 1 و 100")]
+      public int QuantityNeeded { get; set; }
+
+      public UrgencyLevel UrgencyLevel { get; set; }
+      public DateTime RequiredDate { get; set; }
+      public string? Notes { get; set; }
+  }
+```
+
+---
+
+### [MODIFY] `UserDto.cs` — إضافة Validation على RegisterDto
+
+```diff
++ using System.ComponentModel.DataAnnotations;
+
+  public class RegisterDto
+  {
++     [Required(ErrorMessage = "اسم المستخدم مطلوب")]
++     [StringLength(50, MinimumLength = 3, ErrorMessage = "اسم المستخدم بين 3 و 50 حرف")]
+      public string UserName { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "البريد الإلكتروني مطلوب")]
++     [EmailAddress(ErrorMessage = "بريد إلكتروني غير صالح")]
+      public string Email { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "كلمة المرور مطلوبة")]
++     [MinLength(8, ErrorMessage = "كلمة المرور 8 أحرف على الأقل")]
+      public string Password { get; set; } = string.Empty;
+
++     [Required(ErrorMessage = "الاسم الكامل مطلوب")]
+      public string FullName { get; set; } = string.Empty;
+
+      public string? PhoneNumber { get; set; }
+  }
+```
+
+---
+
+## ترتيب التنفيذ الموصى به
+
+```
+1️⃣  BloodConnectAPI.csproj       → حذف حزم Azure
+2️⃣  BloodConnectAPI.Services.csproj → حذف حزم غير ضرورية
+3️⃣  appsettings.json             → حذف مقاطع Azure + تفريغ JWT Key
+4️⃣  dotnet user-secrets set ...  → تخزين JWT Key بأمان
+5️⃣  Program.cs                   → إضافة JWT + StaticFiles + حذف Azure usings
+6️⃣  DonorResponseService.cs      → إضافة SaveChangesAsync
+7️⃣  InventoryService.cs          → حذف Update قبل Delete
+8️⃣  DonorService.cs              → استخدام DonationBusinessRules
+9️⃣  DTOs (4 ملفات)              → إضافة Validation Attributes
+🔟  dotnet build                  → التحقق من عدم وجود أخطاء
+```
+
+---
+
+## خطة التحقق بعد الإصلاح
+
+| الاختبار | الطريقة | النتيجة المتوقعة |
+|---------|---------|----------------|
+| تسجيل الدخول | `POST /api/Auth/login` | يعيد JWT Token |
+| طلب محمي بدون Token | `GET /api/Users` | 401 Unauthorized |
+| طلب محمي مع Token صحيح | `GET /api/Users` + Bearer | 200 OK |
+| رفع وثيقة طبية | `POST /api/medical-documents` | يحفظ الملف في wwwroot |
+| الوصول للملف المرفوع | `GET /uploads/medical-documents/...` | يُعاد الملف |
+| إنشاء متبرع ببيانات فارغة | `POST /api/Donors` (body فارغ) | 400 مع رسائل خطأ |
+| بناء المشروع | `dotnet build` | 0 Errors, تحذيرات أقل |

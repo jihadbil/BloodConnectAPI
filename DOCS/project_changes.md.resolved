@@ -1,0 +1,355 @@
+# توثيق تغييرات BloodConnectAPI
+
+> **التاريخ:** 2026-05-18
+> **الغرض:** توثيق شامل لجميع التغييرات والإضافات التي أُجريت على المشروع
+
+---
+
+## 1. نظرة عامة
+
+قمنا بتحديث جذري لمشروع BloodConnectAPI يشمل:
+- الانتقال من نظام مصادقة مخصص قديم إلى **ASP.NET Core Identity**
+- تطبيق **سير عمل الموافقة على المتبرعين** (Donor Approval Workflow)
+- تطبيق **سير عمل الفحص المختبري** للتبرعات (Lab Testing Workflow)
+- تطبيق **سياسة صلاحية 3 أيام** لوحدات الدم
+- إضافة تتبع **تلبية طلبات الدم** بشكل تدريجي
+- إعادة هيكلة كاملة لـ**طبقة DTOs**
+
+---
+
+## 2. التغييرات في البنية التحتية (Infrastructure)
+
+### 2.1 إزالة Azure AD وإضافة ASP.NET Core Identity
+
+| العنصر | قبل | بعد |
+|--------|-----|-----|
+| نظام المصادقة | `Microsoft.Identity.Web` (Azure AD) | `ASP.NET Core Identity` + `JWT Bearer` |
+| إعدادات الـ Config | قسم `AzureAd` | قسم `JwtSettings` |
+| جداول المصادقة | `Users`, `Roles`, `UserRoles` (مخصصة) | `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles` (Identity) |
+
+#### `appsettings.json` — قبل وبعد
+
+```diff
+- "AzureAd": {
+-   "Instance": "https://login.microsoftonline.com/",
+-   "TenantId": "...",
+-   "ClientId": "..."
+- }
++ "JwtSettings": {
++   "Key": "BloodConnect-Secret-Key-Min-32-Characters!",
++   "Issuer": "BloodConnectAPI",
++   "Audience": "BloodConnectClients",
++   "ExpiryInDays": 7
++ }
+```
+
+#### `Program.cs` — التغييرات
+
+```diff
+- AddMicrosoftIdentityWebApi(...)
++ builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
++     .AddEntityFrameworkStores<ApplicationDbContext>()
++     .AddDefaultTokenProviders();
++
++ // JWT Authentication Configuration
++ builder.Services.AddAuthentication(...)
++     .AddJwtBearer(options => { ... });
++
++ // DataSeeder
++ await DataSeeder.SeedAsync(context, userManager, roleManager);
+```
+
+---
+
+### 2.2 الأدوار في النظام
+
+> **دوران فقط** في هذا النظام:
+> - `Admin` — إدارة المستشفى، تُنشأ عبر `DataSeeder` فقط
+> - `Donor` — المتبرع، يُعيَّن تلقائياً عند التسجيل
+
+---
+
+## 3. التغييرات في النماذج (Models)
+
+### 3.1 `ApplicationUser.cs` — [جديد]
+```csharp
+public class ApplicationUser : IdentityUser
+{
+    public string FullName { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    public Donor? Donor { get; set; }  // navigation إلى المتبرع
+}
+```
+
+### 3.2 `Donor.cs` — [معدّل]
+```diff
+- public int? UserID { get; set; }
+- public User? User { get; set; }
++ public string? UserId { get; set; }          // GUID من Identity
++ public ApplicationUser? User { get; set; }
++
++ // Approval Workflow (جديد)
++ public DonorApprovalStatus ApprovalStatus { get; set; } = PendingDocuments;
++ public string? RejectionReason { get; set; }
++ public DateTime? ApprovalDate { get; set; }
++ public string? ReviewedByUserId { get; set; }
+```
+
+### 3.3 `Donation.cs` — [معدّل: حقول الفحص المختبري]
+```diff
++ public DateTime? TestedAt { get; set; }
++ public string? TestedByUserId { get; set; }
++ public string? TestNotes { get; set; }
++ public bool IsAddedToInventory { get; set; } = false;
+```
+
+### 3.4 `BloodInventoryItem.cs` — [معدّل: صلاحية 3 أيام + حالة الوحدة]
+```diff
++ public BloodUnitStatus Status { get; set; } = BloodUnitStatus.Available;
+// ExpiryDate = AddedAt + 3 days (يُحسب في Service)
+```
+
+### 3.5 `BloodRequest.cs` — [معدّل: تتبع التلبية]
+```diff
++ public int QuantityFulfilled { get; set; } = 0;
+// تُحدَّث تلقائياً عند كل عملية صرف
+```
+
+### 3.6 `DonorMedicalDocument.cs` — [جديد]
+```csharp
+// يمثل وثيقة طبية يرفعها المتبرع للموافقة
+public class DonorMedicalDocument
+{
+    public int DocumentID { get; set; }
+    public int DonorID { get; set; }
+    public string DocumentType { get; set; }  // CBC, HBsAg, HIV...
+    public string FilePath { get; set; }       // مسار في wwwroot
+    public DateTime UploadedAt { get; set; }
+    public bool IsVerified { get; set; }
+    public string? Notes { get; set; }
+}
+```
+
+### 3.7 Enums الجديدة
+
+| Enum | القيم |
+|------|-------|
+| `DonorApprovalStatus` | `PendingDocuments`, `PendingApproval`, `Approved`, `Rejected`, `RequestMoreDocs` |
+| `BloodUnitStatus` | `Available`, `Reserved`, `Used`, `Expired` |
+
+---
+
+## 4. التغييرات في ApplicationDbContext
+
+```diff
+- public class ApplicationDbContext : DbContext
++ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
+
+- public DbSet<User> Users { get; set; }
+- public DbSet<Role> Roles { get; set; }
+- public DbSet<UserRole> UserRoles { get; set; }
++ public DbSet<DonorMedicalDocument> DonorMedicalDocuments { get; set; }
+
+// في OnModelCreating:
++ base.OnModelCreating(modelBuilder);  // مطلوب لـ Identity
++ // تعطيل Cascade Delete لتجنب مشكلة SQL
++ foreach (var fk in cascadeFKs) fk.DeleteBehavior = DeleteBehavior.Restrict;
+```
+
+---
+
+## 5. قاعدة البيانات (Migration)
+
+تم إنشاء Migration جديدة `AddIdentityAndWorkflows` تُضيف:
+
+| جديد | محذوف |
+|------|-------|
+| `AspNetUsers` | `Users` |
+| `AspNetRoles` | `Roles` |
+| `AspNetUserRoles` | `UserRoles` |
+| `AspNetUserClaims` | — |
+| `AspNetRoleClaims` | — |
+| `DonorMedicalDocuments` (جديد) | — |
+| عمود `UserId` (string) في `Donors` | عمود `UserID` (int) |
+| عمود `ApprovalStatus` في `Donors` | — |
+| عمود `TestedAt/TestedByUserId` في `Donations` | — |
+| عمود `IsAddedToInventory` في `Donations` | — |
+| عمود `Status` في `BloodInventoryItems` | — |
+| عمود `QuantityFulfilled` في `BloodRequests` | — |
+
+---
+
+## 6. التغييرات في طبقة DTOs
+
+### 6.1 الملفات المحذوفة
+
+| الملف | السبب |
+|-------|-------|
+| `UserRoleDto.cs` | جدول `UserRole` أُزيل مع Identity |
+
+### 6.2 الملفات المُعاد كتابتها بالكامل
+
+#### `UserDto.cs` — من قديم إلى DTOs Identity جديدة
+| قبل | بعد |
+|-----|-----|
+| `UserDto` (`int UserID`) | `ApplicationUserDto` (`string Id` GUID) |
+| `CreateUserDto` (`List<int> RoleIDs`) | `RegisterDto` (بيانات التسجيل البسيطة) |
+| `UpdateUserDto` | `LoginDto` |
+| — | `LoginResponseDto` (Token + بيانات المستخدم) |
+| — | `UpdateApplicationUserDto` |
+
+#### `RoleDto.cs` — من نموذج قديم إلى Identity بسيط
+| قبل | بعد |
+|-----|-----|
+| `RoleDto` (`int RoleID`, `Description`, `CreatedAt`) | `RoleDto` (`string Id`, `string Name`) |
+| `CreateRoleDto` | `CreateRoleDto` (مبسط) |
+| `UpdateRoleDto` | `AssignRoleDto` (تعيين دور لمستخدم بالاسم) |
+
+### 6.3 الملفات المعدّلة جزئياً
+
+#### `DonorDto.cs`
+```diff
+// DonorDto — عرض
+- public int? UserID { get; set; }
++ public string? UserId { get; set; }        // GUID
++ public string? UserEmail { get; set; }
++ public DonorApprovalStatus ApprovalStatus { get; set; }
++ public string? RejectionReason { get; set; }
++ public DateTime? ApprovalDate { get; set; }
++ public string? ReviewedByUserId { get; set; }
+
+// CreateDonorDto — إنشاء
+- public int? UserID { get; set; }
+- public bool IsActive { get; set; } = true;
++ public string? UserId { get; set; }
++ public DonorApprovalStatus ApprovalStatus { get; set; } = PendingDocuments;
+
+// UpdateDonorDto — تحديث
+- public JsonElement? UserID { ... }   // منطق معقد
+- public bool UserIDWasProvided { ... }
+- public int? ParsedUserID { ... }
++ public string? UserId { get; set; }   // بسيط
++ public DonorApprovalStatus? ApprovalStatus { get; set; }
+```
+
+#### `DonationDto.cs`
+```diff
+// DonationDto — عرض
++ public DateTime? TestedAt { get; set; }
++ public string? TestedByUserId { get; set; }
++ public string? TestNotes { get; set; }
++ public bool IsAddedToInventory { get; set; }
+
+// UpdateDonationDto — تحديث
++ public string? TestNotes { get; set; }
++ public bool? IsAddedToInventory { get; set; }
+```
+
+#### `BloodRequestDto.cs`
+```diff
+// BloodRequestDto — عرض
++ public int QuantityFulfilled { get; set; }
++ public int QuantityRemaining => QuantityNeeded - QuantityFulfilled;
+
+// UpdateBloodRequestDto — تحديث
++ public int? QuantityFulfilled { get; set; }
+```
+
+#### `BloodInventoryItemDto.cs`
+```diff
+// BloodInventoryItemDto — عرض
++ public BloodUnitStatus Status { get; set; }
+
+// CreateBloodInventoryItemDto — إنشاء
+- public DateTime ExpiryDate { get; set; }   // أُزيل (يُحسب تلقائياً: AddedAt + 3 أيام)
+
+// UpdateBloodInventoryItemDto — تحديث
+- public bool? IsUsed { get; set; }
+- public DateTime? ExpiryDate { get; set; }
++ public BloodUnitStatus? Status { get; set; }
+```
+
+### 6.4 الملفات الجديدة المضافة
+
+#### `DonorMedicalDocumentDto.cs`
+```csharp
+DonorMedicalDocumentDto     // عرض وثيقة طبية
+SubmitMedicalDocumentDto    // رفع وثيقة (IFormFile → wwwroot)
+VerifyMedicalDocumentDto    // تحقق الإدارة من وثيقة
+```
+
+#### `ApproveDonorDto.cs`
+```csharp
+// قرار الإدارة: Approved / Rejected / RequestMoreDocs
+public class ApproveDonorDto
+{
+    public DonorApprovalStatus NewStatus { get; set; }
+    public string? RejectionReason { get; set; }
+}
+```
+
+#### `LabTestDonationDto.cs`
+```csharp
+// نتيجة الفحص المختبري للتبرع
+public class LabTestDonationDto
+{
+    public TestResult TestResult { get; set; }
+    public string? TestNotes { get; set; }
+    public bool AddToInventoryIfAccepted { get; set; } = true;
+}
+```
+
+---
+
+## 7. هيكل الملفات النهائي — مشروع DTOs
+
+```
+BloodConnectAPI.Models.DTOs/
+├── [محذوف]  UserRoleDto.cs
+├── [معدّل]  UserDto.cs               ← ApplicationUserDto, RegisterDto, LoginDto, LoginResponseDto
+├── [معدّل]  RoleDto.cs               ← RoleDto (مبسط), CreateRoleDto, AssignRoleDto
+├── [معدّل]  DonorDto.cs              ← + ApprovalStatus, UserId (string)
+├── [معدّل]  DonationDto.cs           ← + حقول الفحص المختبري
+├── [معدّل]  BloodRequestDto.cs       ← + QuantityFulfilled, QuantityRemaining
+├── [معدّل]  BloodInventoryItemDto.cs ← + Status enum, بدون ExpiryDate في الإدخال
+├── [جديد]   DonorMedicalDocumentDto.cs
+├── [جديد]   ApproveDonorDto.cs
+├── [جديد]   LabTestDonationDto.cs
+├── [بدون تغيير] BloodDisbursementDto.cs
+├── [بدون تغيير] BloodInventoryDto.cs
+├── [بدون تغيير] BloodTypeDto.cs
+├── [بدون تغيير] PatientDto.cs
+└── Reports/
+    ├── Donors/         (4 ملفات — بدون تغيير)
+    ├── Donations/      (5 ملفات — بدون تغيير)
+    ├── Inventory/      (5 ملفات — بدون تغيير)
+    ├── Requests/       (5 ملفات — بدون تغيير)
+    ├── Dashboard/
+    ├── Patients/
+    └── Common/
+```
+
+---
+
+## 8. التحقق (Verification)
+
+```
+✅  dotnet build → Build succeeded. 0 Warning(s). 0 Error(s).
+✅  Migration: AddIdentityAndWorkflows → Done.
+✅  Database updated successfully.
+```
+
+---
+
+## 9. الخطوات القادمة المقترحة
+
+| الأولوية | الخطوة |
+|---------|--------|
+| 🔴 عالية | إنشاء `AuthController` (تسجيل + تسجيل دخول + JWT) |
+| 🔴 عالية | تحديث `DonorService` لدعم سير موافقة الوثائق |
+| 🟡 متوسطة | تحديث `BloodInventoryService` لحساب ExpiryDate تلقائياً (3 أيام) |
+| 🟡 متوسطة | تحديث `BloodRequestService` لتحديث `QuantityFulfilled` عند الصرف |
+| 🟢 منخفضة | تحديث Controllers لاستخدام DTOs الجديدة |
+| 🟢 منخفضة | إضافة مجلد `wwwroot/uploads/medical-documents/` |
