@@ -362,5 +362,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/Tasks/task3.md.resolved
-/Tasks/task2.md.resolved
+Tasks/
+Plans/
+DOCS/
