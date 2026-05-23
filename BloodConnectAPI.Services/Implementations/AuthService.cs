@@ -8,6 +8,7 @@ using BloodConnectAPI.Models;
 using BloodConnectAPI.Models.DTOs;
 using BloodConnectAPI.Service.Common;
 using BloodConnectAPI.Service.Interfaces;
+using BloodConnectAPI.DataAccess.Repositories.Interfaces;
 
 namespace BloodConnectAPI.Service.Implementations;
 
@@ -19,15 +20,18 @@ public class AuthService : IAuthService
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IConfiguration _configuration;
+    private readonly IUnitOfWork _unitOfWork;
 
     public AuthService(
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IUnitOfWork unitOfWork)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _configuration = configuration;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<ServiceResponse<LoginResponseDto>> LoginAsync(LoginDto dto)
@@ -52,6 +56,16 @@ public class AuthService : IAuthService
         var roles = await _userManager.GetRolesAsync(user);
         var (tokenString, expiryDate) = GenerateJwtToken(user, roles);
 
+        int? donorId = null;
+        string? donorName = null;
+
+        if (!roles.Contains("Admin"))
+        {
+            var donor = await _unitOfWork.Donors.FirstOrDefaultAsync(d => d.UserId == user.Id);
+            donorId = donor?.DonorID;
+            donorName = donor?.FullName;
+        }
+
         var userDto = new ApplicationUserDto
         {
             Id = user.Id,
@@ -62,7 +76,9 @@ public class AuthService : IAuthService
             IsActive = user.IsActive,
             CreatedAt = user.CreatedAt,
             UpdatedAt = user.UpdatedAt,
-            Roles = roles.ToList()
+            Roles = roles.ToList(),
+            DonorID = donorId,
+            DonorName = donorName
         };
 
         var loginResponse = new LoginResponseDto
@@ -111,7 +127,9 @@ public class AuthService : IAuthService
             PhoneNumber = user.PhoneNumber,
             IsActive = user.IsActive,
             CreatedAt = user.CreatedAt,
-            Roles = roles.ToList()
+            Roles = roles.ToList(),
+            DonorID = null,
+            DonorName = null
         };
 
         var loginResponse = new LoginResponseDto
