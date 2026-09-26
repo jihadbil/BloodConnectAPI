@@ -16,6 +16,7 @@ public interface IBloodRequestService
     Task<ServiceResponse<BloodRequestDto>> CreateAsync(CreateBloodRequestDto request);
     Task<ServiceResponse<BloodRequestDto>> UpdateStatusAsync(int id, RequestStatus status, string? notes = null);
     Task<ServiceResponse<bool>> CancelAsync(int id, string reason);
+    Task<ServiceResponse<bool>> DeleteAsync(int id);
     
     // Business Operations
     Task<ServiceResponse<IEnumerable<BloodRequestDto>>> GetPendingRequestsAsync();

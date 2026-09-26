@@ -134,6 +134,31 @@ public class BloodRequestService : IBloodRequestService
         return ServiceResponse<bool>.SuccessResponse(true, "تم إلغاء الطلب بنجاح");
     }
 
+    public async Task<ServiceResponse<bool>> DeleteAsync(int id)
+    {
+        var request = await _unitOfWork.BloodRequests.GetByIdAsync(id);
+        if (request == null)
+            return ServiceResponse<bool>.FailureResponse("الطلب غير موجود");
+
+        try
+        {
+            await _unitOfWork.BloodRequests.DeleteAsync(request);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            if (ex.InnerException?.Message.Contains("FOREIGN KEY") == true || 
+                ex.Message.Contains("FOREIGN KEY") == true ||
+                ex.InnerException?.Message.Contains("constraint") == true)
+            {
+                return ServiceResponse<bool>.FailureResponse("لا يمكن حذف طلب الدم لوجود سجلات مرتبطة به (مثل استجابات المتبرعين).");
+            }
+            throw;
+        }
+
+        return ServiceResponse<bool>.SuccessResponse(true, "تم حذف طلب الدم بنجاح");
+    }
+
     public async Task<ServiceResponse<IEnumerable<BloodRequestDto>>> GetPendingRequestsAsync()
     {
         var requests = await _unitOfWork.BloodRequests.GetPendingRequestsAsync();

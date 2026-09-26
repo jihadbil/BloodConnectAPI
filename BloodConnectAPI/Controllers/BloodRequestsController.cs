@@ -205,6 +205,30 @@ public class BloodRequestsController : ControllerBase
     }
 
     /// <summary>
+    /// حذف طلب
+    /// </summary>
+    [HttpDelete("{id}")]
+    [ProducesResponseType(typeof(ServiceResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Delete(int id)
+    {
+        _logger.LogInformation("محاولة حذف طلب دم: {RequestId}", id);
+
+        var response = await _requestService.DeleteAsync(id);
+        
+        if (!response.IsSuccess)
+        {
+            if (response.Message.Contains("غير موجود"))
+                return NotFound(response);
+            return BadRequest(response);
+        }
+
+        _logger.LogInformation("تم حذف طلب الدم: {RequestId}", id);
+        return Ok(response);
+    }
+
+    /// <summary>
     /// جلب جميع استجابات المتبرعين لطلب دم معين
     /// </summary>
     /// <param name="id">معرف طلب الدم</param>
