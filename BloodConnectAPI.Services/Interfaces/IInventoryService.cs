@@ -20,7 +20,7 @@ public interface IInventoryService
     Task<ServiceResponse<bool>> AddToInventoryAsync(int donationId, int bloodTypeId, int quantity);
     Task<ServiceResponse<bool>> DisburseDonationAsync(int bloodTypeId, int quantity, int disbursementId);
     Task<ServiceResponse<int>> RemoveExpiredUnitsAsync();
-    Task<ServiceResponse<IEnumerable<BloodInventoryItemDto>>> GetExpiringItemsAsync(int daysThreshold = 7);
+    Task<ServiceResponse<IEnumerable<BloodInventoryItemDto>>> GetExpiringItemsAsync(int daysThreshold = 1);
     
     // إدارة حالة الوحدات
     Task<ServiceResponse<BloodInventoryItemDto>> UpdateItemStatusAsync(int itemId, BloodUnitStatus newStatus);

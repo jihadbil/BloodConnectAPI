@@ -28,9 +28,9 @@ public static class DonationBusinessRules
     public const int FemaleDonationIntervalDays = 120;
 
     /// <summary>
-    /// مدة صلاحية الدم (بالأيام) - 42 يوم
+    /// مدة صلاحية الدم (بالأيام) - 3 أيام
     /// </summary>
-    public const int BloodExpiryDays = 42;
+    public const int BloodExpiryDays = 3;
 
     /// <summary>
     /// التحقق من أن عمر المتبرع مناسب (18-65 سنة)

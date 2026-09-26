@@ -241,10 +241,10 @@ public class InventoryService : IInventoryService
     }
 
     /// <summary>
-    /// الحصول على الوحدات القريبة من انتهاء الصلاحية (خلال 7 أيام)
+    /// الحصول على الوحدات القريبة من انتهاء الصلاحية (خلال يوم واحد)
     /// </summary>
     public async Task<ServiceResponse<IEnumerable<BloodInventoryItemDto>>> GetExpiringItemsAsync(
-        int daysThreshold = 7)
+        int daysThreshold = 1)
     {
         var expiringItems = await _unitOfWork.BloodInventoryItems
             .GetExpiringItemsAsync(daysThreshold);

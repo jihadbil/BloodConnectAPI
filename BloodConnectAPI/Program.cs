@@ -10,10 +10,19 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("Con2")));
 
 // Identity
-builder.Services.AddIdentity<ApplicationUser, IdentityRole>()
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+{
+    // Password settings
+    options.Password.RequireDigit = true;
+    options.Password.RequireLowercase = false;
+    options.Password.RequireUppercase = false;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequiredLength = 4;
+    options.Password.RequiredUniqueChars = 1;
+})
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
@@ -47,28 +56,11 @@ builder.Services.AddAuthentication(options =>
 // CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins(
-                // Vite dev server (default)
-                "http://localhost:5173",
-                "https://localhost:5173",
-                // Webpack / CRA / other bundlers
-                "http://localhost:8080",
-                "https://localhost:8080",
-                // fallback port if 8080 is busy
-                "http://localhost:8081",
-                "https://localhost:8081",
-                // Create React App default
-                "http://localhost:3000",
-                "https://localhost:3000"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+    options.AddPolicy("AllowAll",
+        builder => builder.AllowAnyOrigin()
+                          .AllowAnyMethod()
+                          .AllowAnyHeader());
 });
-
 builder.Services.AddControllers();
 builder.Services.AddOpenApi(options =>
 {
@@ -155,16 +147,35 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
+//app.UseDefaultFiles();
+//app.UseStaticFiles();
 
-app.UseCors("AllowFrontend");   // ← يجب أن يكون قبل UseStaticFiles
+//app.UseCors("AllowAll");   // ← يجب أن يكون قبل UseStaticFiles
+
+//app.UseAuthentication();
+//app.UseAuthorization();
+
+//app.MapControllers();
+//app.MapFallbackToFile("index.html"); // دعم SPA
+//app.Run();
+
+
+//app.UseHttpsRedirection();
+
+// تقديم ملفات React
+app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// يجب إضافة UseRouting صراحة لضمان عمل CORS و Auth بشكل سليم
+app.UseRouting();
+
+app.UseCors("AllowAll");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapFallbackToFile("index.html"); // دعم SPA
+app.MapFallbackToFile("index.html"); // دعم مسارات React (SPA)
+
 app.Run();
-
-

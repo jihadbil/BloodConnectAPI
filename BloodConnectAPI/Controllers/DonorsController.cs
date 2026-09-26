@@ -196,12 +196,17 @@ public class DonorsController : ControllerBase
     [HttpDelete("{id}")]
     [ProducesResponseType(typeof(ServiceResponse<bool>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Delete(int id)
     {
         var response = await _donorService.DeleteAsync(id);
         
         if (!response.IsSuccess)
-            return NotFound(response);
+        {
+            if (response.Message.Contains("غير موجود"))
+                return NotFound(response);
+            return BadRequest(response);
+        }
 
         return Ok(response);
     }
