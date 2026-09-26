@@ -49,7 +49,7 @@ public class DonorResponseService : IDonorResponseService
             return ServiceResponse<DonorResponseDto>.FailureResponse("المتبرع غير نشط ولا يمكنه الاستجابة");
 
         // التحقق من توافق فصيلة الدم
-        if (donor.BloodTypeID != request.BloodTypeID)
+        if (!IsCompatible(donor.BloodTypeID, request.BloodTypeID))
             return ServiceResponse<DonorResponseDto>.FailureResponse(
                 "فصيلة دم المتبرع لا تتوافق مع فصيلة الدم المطلوبة في هذا الطلب");
 
@@ -72,14 +72,25 @@ public class DonorResponseService : IDonorResponseService
         await _unitOfWork.DonorResponseRepository.AddAsync(response);
         await _unitOfWork.SaveChangesAsync();
 
-        // إشعار الموظفين باستجابة متبرع جديد
-        await _notificationService.CreateForRoleAsync(
-            role: "Staff",
-            title: "استجابة متبرع جديدة",
-            message: $"أبدى المتبرع '{donor.FullName}' اهتمامه بطلب الدم #{dto.RequestID}",
-            type: NotificationType.NewDonorResponse,
-            relatedEntityType: "DonorResponse",
-            relatedEntityId: response.ResponseID);
+        // إشعار الإدارة والموظفين باستجابة متبرع جديد
+        var notificationRoles = new[] { "Admin", "Doctor", "Nurse", "Staff" };
+        foreach (var role in notificationRoles)
+        {
+            try
+            {
+                await _notificationService.CreateForRoleAsync(
+                    role: role,
+                    title: "استجابة متبرع جديدة",
+                    message: $"أبدى المتبرع '{donor.FullName}' اهتمامه بطلب الدم #{dto.RequestID}",
+                    type: NotificationType.NewDonorResponse,
+                    relatedEntityType: "DonorResponse",
+                    relatedEntityId: response.ResponseID);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error sending role notification for {role}: {ex.Message}");
+            }
+        }
 
         // جلب الاستجابة مع تفاصيلها الكاملة للـ DTO
         var fullResponse = await _unitOfWork.DonorResponseRepository.GetWithDetailsAsync(response.ResponseID);
@@ -286,6 +297,24 @@ public class DonorResponseService : IDonorResponseService
 
         await _unitOfWork.BloodRequests.UpdateAsync(request);
         await _unitOfWork.SaveChangesAsync();
+    }
+
+    private static bool IsCompatible(int? donorTypeID, int? recipientTypeID)
+    {
+        if (!donorTypeID.HasValue || !recipientTypeID.HasValue) return false;
+        
+        return donorTypeID.Value switch
+        {
+            1 => recipientTypeID.Value == 1 || recipientTypeID.Value == 5, // A+ -> A+, AB+
+            2 => recipientTypeID.Value == 1 || recipientTypeID.Value == 2 || recipientTypeID.Value == 5 || recipientTypeID.Value == 6, // A- -> A+, A-, AB+, AB-
+            3 => recipientTypeID.Value == 3 || recipientTypeID.Value == 5, // B+ -> B+, AB+
+            4 => recipientTypeID.Value == 3 || recipientTypeID.Value == 4 || recipientTypeID.Value == 5 || recipientTypeID.Value == 6, // B- -> B+, B-, AB+, AB-
+            5 => recipientTypeID.Value == 5, // AB+ -> AB+
+            6 => recipientTypeID.Value == 5 || recipientTypeID.Value == 6, // AB- -> AB+, AB-
+            7 => recipientTypeID.Value == 1 || recipientTypeID.Value == 3 || recipientTypeID.Value == 5 || recipientTypeID.Value == 7, // O+ -> A+, B+, AB+, O+
+            8 => recipientTypeID.Value >= 1 && recipientTypeID.Value <= 8, // O- -> everyone
+            _ => false
+        };
     }
 
     #endregion

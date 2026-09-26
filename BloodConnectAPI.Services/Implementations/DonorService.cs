@@ -17,12 +17,14 @@ public class DonorService : IDonorService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IMapper _mapper;
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly INotificationService _notificationService;
 
-    public DonorService(IUnitOfWork unitOfWork, IMapper mapper, UserManager<ApplicationUser> userManager)
+    public DonorService(IUnitOfWork unitOfWork, IMapper mapper, UserManager<ApplicationUser> userManager, INotificationService notificationService)
     {
         _unitOfWork = unitOfWork;
         _mapper = mapper;
         _userManager = userManager;
+        _notificationService = notificationService;
     }
 
     public async Task<ServiceResponse<DonorDto>> GetByIdAsync(int id)
@@ -189,8 +191,21 @@ public class DonorService : IDonorService
         if (donor == null)
             return ServiceResponse<bool>.FailureResponse("المتبرع غير موجود");
 
-        await _unitOfWork.Donors.DeleteAsync(donor);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.Donors.DeleteAsync(donor);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            if (ex.InnerException?.Message.Contains("FOREIGN KEY") == true || 
+                ex.Message.Contains("FOREIGN KEY") == true ||
+                ex.InnerException?.Message.Contains("constraint") == true)
+            {
+                return ServiceResponse<bool>.FailureResponse("لا يمكن حذف المتبرع لوجود سجلات مرتبطة به (مثل تبرعات، وثائق طبية، أو استجابات لطلبات الدم). يمكنك إلغاء تفعيل المتبرع بدلاً من حذفه.");
+            }
+            throw;
+        }
 
         return ServiceResponse<bool>.SuccessResponse(true, "تم حذف المتبرع بنجاح");
     }
@@ -350,6 +365,47 @@ public class DonorService : IDonorService
 
         await _unitOfWork.Donors.UpdateAsync(donor);
         await _unitOfWork.SaveChangesAsync();
+
+        // إرسال إشعار للمستخدم عن تحديث حالة الموافقة
+        if (!string.IsNullOrEmpty(donor.UserId))
+        {
+            try
+            {
+                if (dto.NewStatus == DonorApprovalStatus.RequestMoreDocs)
+                {
+                    await _notificationService.CreateAsync(
+                        recipientUserId: donor.UserId,
+                        title: "مطلوب وثائق إضافية للتحقق من الحساب",
+                        message: $"يرجى رفع المستندات الإضافية المطلوبة: {dto.RejectionReason}",
+                        type: NotificationType.General
+                    );
+                }
+                else if (dto.NewStatus == DonorApprovalStatus.Approved)
+                {
+                    await _notificationService.CreateAsync(
+                        recipientUserId: donor.UserId,
+                        title: "تم قبول حساب المتبرع الخاص بك",
+                        message: "تهانينا! تم قبول مستنداتك وتفعيل حسابك كمتبرع معتمد.",
+                        type: NotificationType.General
+                    );
+                }
+                else if (dto.NewStatus == DonorApprovalStatus.Rejected)
+                {
+                    await _notificationService.CreateAsync(
+                        recipientUserId: donor.UserId,
+                        title: "تم رفض وثائق المتبرع الخاصة بك",
+                        message: $"عذراً، تم رفض طلبك للسبب التالي: {dto.RejectionReason}",
+                        type: NotificationType.General
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                // لا نريد أن يتسبب فشل إرسال الإشعار في فشل تحديث حالة المتبرع بالكامل
+                // لذلك نقوم بالتقاط الاستثناء وتسجيله فقط
+                System.Diagnostics.Debug.WriteLine($"Error sending status update notification: {ex.Message}");
+            }
+        }
 
         var donorDto = _mapper.Map<DonorDto>(donor);
         return ServiceResponse<DonorDto>.SuccessResponse(donorDto, "تم تحديث حالة الموافقة بنجاح");
