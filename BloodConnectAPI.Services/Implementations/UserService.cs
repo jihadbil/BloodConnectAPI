@@ -154,27 +154,38 @@ public class UserService : IUserService
         if (user == null)
             return ServiceResponse<bool>.FailureResponse("المستخدم غير موجود");
 
-        // 1) إزالة جميع أدوار المستخدم أولاً لتفادي FK violation في AspNetUserRoles
-        var roles = await _userManager.GetRolesAsync(user);
-        if (roles.Any())
+        try
         {
-            var removeRolesResult = await _userManager.RemoveFromRolesAsync(user, roles);
-            if (!removeRolesResult.Succeeded)
-                return ServiceResponse<bool>.FailureResponse("فشل إزالة أدوار المستخدم قبل الحذف");
+            // 1) إزالة جميع أدوار المستخدم أولاً لتفادي FK violation في AspNetUserRoles
+            var roles = await _userManager.GetRolesAsync(user);
+            if (roles.Any())
+            {
+                var removeRolesResult = await _userManager.RemoveFromRolesAsync(user, roles);
+                if (!removeRolesResult.Succeeded)
+                    return ServiceResponse<bool>.FailureResponse("فشل إزالة أدوار المستخدم قبل الحذف");
+            }
+
+            // 2) إزالة جميع Claims المرتبطة
+            var claims = await _userManager.GetClaimsAsync(user);
+            if (claims.Any())
+                await _userManager.RemoveClaimsAsync(user, claims);
+
+            // 3) حذف المستخدم
+            var result = await _userManager.DeleteAsync(user);
+
+            if (!result.Succeeded)
+                return ServiceResponse<bool>.FailureResponse("فشل حذف المستخدم");
+
+            return ServiceResponse<bool>.SuccessResponse(true, "تم حذف المستخدم بنجاح");
         }
-
-        // 2) إزالة جميع Claims المرتبطة
-        var claims = await _userManager.GetClaimsAsync(user);
-        if (claims.Any())
-            await _userManager.RemoveClaimsAsync(user, claims);
-
-        // 3) حذف المستخدم
-        var result = await _userManager.DeleteAsync(user);
-
-        if (!result.Succeeded)
-            return ServiceResponse<bool>.FailureResponse("فشل حذف المستخدم");
-
-        return ServiceResponse<bool>.SuccessResponse(true, "تم حذف المستخدم بنجاح");
+        catch (DbUpdateException)
+        {
+            return ServiceResponse<bool>.FailureResponse("لا يمكن حذف المستخدم لوجود بيانات مرتبطة به في جداول أخرى (مثل سجلات المتبرعين أو المرضى).");
+        }
+        catch (Exception ex)
+        {
+            return ServiceResponse<bool>.FailureResponse($"حدث خطأ أثناء عملية الحذف: {ex.Message}");
+        }
     }
 
     public async Task<ServiceResponse<bool>> ToggleActiveAsync(string id)

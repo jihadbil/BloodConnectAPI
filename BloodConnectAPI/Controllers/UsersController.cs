@@ -97,13 +97,19 @@ public class UsersController : ControllerBase
     [HttpDelete("{id}")]
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(ServiceResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ServiceResponse<object>), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(string id)
     {
         var response = await _userService.DeleteAsync(id);
         
         if (!response.IsSuccess)
-            return NotFound(response);
+        {
+            if (response.Message == "المستخدم غير موجود")
+                return NotFound(response);
+
+            return BadRequest(response);
+        }
 
         return Ok(response);
     }

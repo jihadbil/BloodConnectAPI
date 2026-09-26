@@ -188,8 +188,21 @@ public class DonationService : IDonationService
         if (donation == null)
             return ServiceResponse<bool>.FailureResponse("التبرع غير موجود");
 
-        await _unitOfWork.Donations.DeleteAsync(donation);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.Donations.DeleteAsync(donation);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            if (ex.InnerException?.Message.Contains("FOREIGN KEY") == true || 
+                ex.Message.Contains("FOREIGN KEY") == true ||
+                ex.InnerException?.Message.Contains("constraint") == true)
+            {
+                return ServiceResponse<bool>.FailureResponse("لا يمكن حذف التبرع لوجود سجلات مرتبطة به (مثل تقارير التحاليل أو الاستجابات لطلبات الدم).");
+            }
+            throw;
+        }
 
         return ServiceResponse<bool>.SuccessResponse(true, "تم حذف التبرع بنجاح");
     }

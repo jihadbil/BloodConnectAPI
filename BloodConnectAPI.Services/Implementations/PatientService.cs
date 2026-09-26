@@ -99,8 +99,21 @@ public class PatientService : IPatientService
         if (patient == null)
             return ServiceResponse<bool>.FailureResponse("المريض غير موجود");
 
-        await _unitOfWork.Patients.DeleteAsync(patient);
-        await _unitOfWork.SaveChangesAsync();
+        try
+        {
+            await _unitOfWork.Patients.DeleteAsync(patient);
+            await _unitOfWork.SaveChangesAsync();
+        }
+        catch (Microsoft.EntityFrameworkCore.DbUpdateException ex)
+        {
+            if (ex.InnerException?.Message.Contains("FOREIGN KEY") == true || 
+                ex.Message.Contains("FOREIGN KEY") == true ||
+                ex.InnerException?.Message.Contains("constraint") == true)
+            {
+                return ServiceResponse<bool>.FailureResponse("لا يمكن حذف المريض لوجود سجلات طلبات دم مرتبطة به.");
+            }
+            throw;
+        }
 
         return ServiceResponse<bool>.SuccessResponse(true, "تم حذف المريض بنجاح");
     }
