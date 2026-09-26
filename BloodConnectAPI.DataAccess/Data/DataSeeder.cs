@@ -84,6 +84,38 @@ public static class DataSeeder
             {
                 await userManager.AddToRoleAsync(adminUser, "Admin");
             }
+            else
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                throw new Exception($"Failed to seed default 'admin' user: {errors}");
+            }
+        }
+
+        // Seed Admin1 User using UserManager
+        var admin1Email = "admin1@bloodconnect.com";
+        var admin1User = await userManager.FindByNameAsync("admin1");
+        if (admin1User == null)
+        {
+            admin1User = new ApplicationUser
+            {
+                UserName = "admin1",
+                Email = admin1Email,
+                FullName = "مدير النظام 1",
+                PhoneNumber = "0000000001",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            
+            var result = await userManager.CreateAsync(admin1User, "Admin@123");
+            if (result.Succeeded)
+            {
+                await userManager.AddToRoleAsync(admin1User, "Admin");
+            }
+            else
+            {
+                var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                throw new Exception($"Failed to seed 'admin1' user: {errors}");
+            }
         }
     }
 }

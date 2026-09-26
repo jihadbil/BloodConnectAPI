@@ -103,6 +103,18 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
             .WithMany(d => d.LabReports)
             .HasForeignKey(r => r.DonationID);
 
+        // إعداد علاقة DonorRequestResponse مع BloodRequest باستخدام RequestID كمفتاح خارجي
+        modelBuilder.Entity<DonorRequestResponse>()
+            .HasOne(r => r.BloodRequest)
+            .WithMany(q => q.DonorResponses)
+            .HasForeignKey(r => r.RequestID);
+
+        // إعداد علاقة BloodDisbursement مع BloodRequest باستخدام RequestID كمفتاح خارجي
+        modelBuilder.Entity<BloodDisbursement>()
+            .HasOne(d => d.BloodRequest)
+            .WithMany(r => r.BloodDisbursements)
+            .HasForeignKey(d => d.RequestID);
+
         // إعداد علاقة Notification مع ApplicationUser
         modelBuilder.Entity<Notification>()
             .HasOne(n => n.Recipient)
